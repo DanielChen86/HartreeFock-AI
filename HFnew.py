@@ -56,10 +56,11 @@ class HFSolution:
     total_energy_with_identity_per_particle: float | None
 
 class HF:
-    def __init__(self, path, nu, N, U0=0, metal=True, kT=0.005):
+    def __init__(self, path, nu, N, U0=0, Vupdown=0, metal=True, kT=0.005):
         self.path = path
         self.nu = nu
         self.U0 = U0
+        self.Vupdown = Vupdown
         self.N = N
         self.metal = metal
         self.kT = kT
@@ -224,6 +225,28 @@ class HF:
         h_hf = 0.5 * (h_hf + h_hf.conj().T)
         return h_hf, np.sum(h_hf * rho) / 2
 
+    def on_site_hubbard_up_down(self, Ck: np.ndarray) -> np.ndarray:
+        # Basis ordering is {|+,up>, |+,down>, |-,up>, |-,down>}.
+        # rho_{sigma,sigma'} = (1/N^2) sum_k C_k[sigma,sigma']
+        rho = np.mean(Ck, axis=0)
+        h_hf = np.zeros((self.dim, self.dim), dtype=np.complex128)
+        if np.isclose(self.Vupdown, 0):
+            return h_hf, 0.0
+
+        spin_parity = np.arange(self.dim) % 2
+        opposite_spin_mask = (spin_parity[:, None] != spin_parity[None, :]).astype(np.complex128)
+
+        # Hartree term from Eq. (4.3): each state sees the total density of the opposite spin.
+        rho_diag = np.diag(rho)
+        hartree_diag = np.sum(opposite_spin_mask * rho_diag[:, None], axis=0)
+        h_hf[np.diag_indices(self.dim)] = 0.5 * self.Vupdown * hartree_diag
+
+        # Fock term from Eq. (4.3): only opposite-spin matrix elements contribute.
+        h_hf += -0.5 * self.Vupdown * (opposite_spin_mask * rho.T)
+
+        h_hf = 0.5 * (h_hf + h_hf.conj().T)
+        return h_hf, np.sum(h_hf * rho) / 2
+
     @staticmethod
     def relative_frobenius_delta(new: np.ndarray, old: np.ndarray) -> float:
         num = float(np.linalg.norm((new - old).ravel()))
@@ -251,8 +274,12 @@ class HF:
             if Ck.shape != (self.N**2, self.dim, self.dim):
                 raise ValueError(f"Ck0 must have shape {(self.N**2, self.dim, self.dim)}.")
 
-        for it in range(1, max_iter + 1):
-            h_hf, e_hf = self.nearest_neighbor_electron_repulsion(Ck)
+        converged = False
+        for it_ in range(1, max_iter + 1):
+            h_u0, e_u0 = self.nearest_neighbor_electron_repulsion(Ck)
+            h_vud, e_vud = self.on_site_hubbard_up_down(Ck)
+            h_hf = h_u0 + h_vud
+            e_hf = e_u0 + e_vud
             h_k = self.Htb + h_hf[None, :, :]
             evals, vecs = self.diagonalize_blocks(h_k)
             evals = evals - e_hf
@@ -284,7 +311,7 @@ class HF:
                 converged = True
                 break
 
-        return h_k, Ck, converged
+        return h_k, Ck, converged, it_
 
     def build_effective_hopping(self, h_k):
         effective_hopping = {}
@@ -309,39 +336,46 @@ class HF:
 
 
 if __name__ == '__main__':
-    U0_ = 0.1
+    U0_ = 0.2
+    Vupdown = 0.3
     metal_ = True
 
     model = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', 
-               nu=1, U0=U0_, N=12, metal=metal_)
+               nu=1, U0=U0_, Vupdown=Vupdown, N=12, metal=metal_)
 
-    # hf_dft = TrigonalDFT2(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, U0=U0_, N=12, metal=metal_)
+    hf_dft = TrigonalDFT2(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, U0=U0_, Uspin0=Vupdown, N=12, metal=metal_)
 
     # tb_path = Path("TightBindingModel/Re2CoO8/withSOCwannier-dim2")
     # if tb_path.exists():
     #     hf = HartreeFock(tb_path, nu=1, U0=U0_, N=12, metal=metal_)
 
-    # ############################################################
-    # for k, v in model.hopping.items():
-    #     assert np.allclose(v, hf_dft.Hamiltonian[k]['H']), (k, v - hf_dft.Hamiltonian[k]['H'])
-    # for k, v in hf_dft.Hamiltonian.items():
-    #     assert np.allclose(model.hopping[k], v['H']), (k, v - hf_dft.Hamiltonian[k]['H'])
+    ############################################################
+    for k, v in model.hopping.items():
+        assert np.allclose(v, hf_dft.Hamiltonian[k]['H']), (k, v - hf_dft.Hamiltonian[k]['H'])
+    for k, v in hf_dft.Hamiltonian.items():
+        assert np.allclose(model.hopping[k], v['H']), (k, v - hf_dft.Hamiltonian[k]['H'])
     
-    # for _ in range(30):
-    #     r1, r2 = np.random.rand(2)
-    #     assert np.allclose(model.HKtb(r1*model.G[1]+r2*model.G[2]), hf_dft.Hk(r1*hf_dft.G[1]+r2*hf_dft.G[2]))
+    for _ in range(30):
+        r1, r2 = np.random.rand(2)
+        assert np.allclose(model.HKtb(r1*model.G[1]+r2*model.G[2]), hf_dft.Hk(r1*hf_dft.G[1]+r2*hf_dft.G[2]))
     
-    # hf_dft.genInitialTwoPointCorrelation()
-    # Ck = hf_dft.twoPointCorrelation
-    # h_dft = hf_dft.U0 * (hf_dft.genHamiltonianHartreeU0() + hf_dft.genHamiltonianFockU0())
-    # h_hf, e_hf = model.nearest_neighbor_electron_repulsion(Ck)
-    # assert np.allclose(h_hf, h_dft[0, :, :])
+    hf_dft.genInitialTwoPointCorrelation()
+    Ck = hf_dft.twoPointCorrelation
 
-    # h_k = model.Htb + h_hf[None, :, :]
-    # evals, vecs = model.diagonalize_blocks(h_k)
-    # evals = evals - e_hf
-    # hf_dft.calculateSpectrum()
-    # assert np.allclose(np.sort(evals.reshape(-1)), hf_dft.eigvals)
+
+
+    h_u0, e_u0 = model.nearest_neighbor_electron_repulsion(Ck)
+    assert np.allclose(h_u0, (hf_dft.U0 * (hf_dft.genHamiltonianHartreeU0() + hf_dft.genHamiltonianFockU0())[0, :, :]))
+    h_vud, e_vud = model.on_site_hubbard_up_down(Ck)
+    assert np.allclose(h_vud, (hf_dft.Uspin0 * (hf_dft.genHamiltonianHartreeUspin0() + hf_dft.genHamiltonianFockUspin0())[0, :, :]))
+    h_hf = h_u0 + h_vud
+    e_hf = e_u0 + e_vud
+
+    h_k = model.Htb + h_hf[None, :, :]
+    evals, vecs = model.diagonalize_blocks(h_k)
+    evals = evals - e_hf
+    hf_dft.calculateSpectrum()
+    assert np.allclose(np.sort(evals.reshape(-1)), hf_dft.eigvals), (np.sort(evals.reshape(-1))[:10], hf_dft.eigvals[:10])
 
     # h_hf_ = hf._hartree_fock_shift(Ck)
     # h_k_ = hf.htb_k + h_hf[None, :, :]
@@ -350,21 +384,21 @@ if __name__ == '__main__':
     # C_new_ = hf._density_from_eigensystem(vecs_, occ_)
 
     
-    # ############################################################
+    ############################################################
 
-    # occ, mu = model.occupancies_from_energies(evals)
-    # C_new = model.density_from_eigensystem(vecs, occ)
+    occ, mu = model.occupancies_from_energies(evals)
+    C_new = model.density_from_eigensystem(vecs, occ)
 
     # assert np.allclose(vecs, vecs_)
     # assert np.allclose(occ, occ_)
     # assert np.allclose(C_new, C_new_)
 
-    # hf_dft.updateTwoPointCorrelation(0)
-    # assert np.allclose(C_new, hf_dft.tildeD)
-    # assert np.allclose(np.sort(occ.reshape(-1).real), np.sort(hf_dft.FD_distribution(hf_dft.eigvals, hf_dft.mu).real))
+    hf_dft.updateTwoPointCorrelation(0)
+    assert np.allclose(C_new, hf_dft.tildeD)
+    assert np.allclose(np.sort(occ.reshape(-1).real), np.sort(hf_dft.FD_distribution(hf_dft.eigvals, hf_dft.mu).real))
     
-    h_k, Ck, converged = model.solve(max_iter=3000, alpha=1, verbose=True)
-    print(f'convergence: {converged}')
+    h_k, Ck, converged, it_ = model.solve(max_iter=5000, alpha=1, verbose=True)
+    print(f'convergence: {converged} / iteration: {it_}')
 
     effective_hopping = model.build_effective_hopping(h_k)
     for idx, grid in model.indexToKGrid.items():
@@ -372,5 +406,3 @@ if __name__ == '__main__':
         eigvals1 = np.linalg.eigh(h_k[idx, :, :])[0]
         eigvals2 = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
         assert np.allclose(eigvals1, eigvals2)
-
-    
