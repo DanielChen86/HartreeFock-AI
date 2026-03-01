@@ -160,8 +160,9 @@ class HF:
             return occ.reshape(eigvals.shape), float(mu)
         else:
             vals = eigvals.reshape(-1)
-            sorting = np.argsort(vals)
-            occ = (sorting < self.Nocc - 1e-5).astype(int)
+            filled = np.argsort(vals)[:self.Nocc]
+            occ = np.zeros_like(vals, dtype=float)
+            occ[filled] = 1.0
             assert np.sum(occ) == self.Nocc
             occ = occ.reshape(eigvals.shape)
             return occ, None
@@ -325,15 +326,16 @@ class HF:
 
 if __name__ == '__main__':
     U0_ = 0.1
+    metal_ = True
 
     model = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', 
-               nu=1, U0=U0_, N=12, metal=True)
+               nu=1, U0=U0_, N=12, metal=metal_)
 
-    # hf_dft = TrigonalDFT2(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, U0=U0_, N=12, metal=True)
+    # hf_dft = TrigonalDFT2(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, U0=U0_, N=12, metal=metal_)
 
     # tb_path = Path("TightBindingModel/Re2CoO8/withSOCwannier-dim2")
     # if tb_path.exists():
-    #     hf = HartreeFock(tb_path, nu=1, U0=U0_, N=12, metal=True)
+    #     hf = HartreeFock(tb_path, nu=1, U0=U0_, N=12, metal=metal_)
 
     # ############################################################
     # for k, v in model.hopping.items():
@@ -379,4 +381,3 @@ if __name__ == '__main__':
     
     model.solve(max_iter=3000, alpha=1, verbose=True)
     
-
