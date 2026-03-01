@@ -226,23 +226,22 @@ class HF:
         return h_hf, np.sum(h_hf * rho) / 2
 
     def on_site_hubbard_up_down(self, Ck: np.ndarray) -> np.ndarray:
-        # Basis ordering is {|+,up>, |+,down>, |-,up>, |-,down>}.
-        # rho_{sigma,sigma'} = (1/N^2) sum_k C_k[sigma,sigma']
+        # Section 4.2: V_{up,down}/2 sum_{R,alpha,alpha'} n_{R alpha up} n_{R alpha' down}
+        # with the local basis ordered as [alpha1 up, alpha1 down, alpha2 up, alpha2 down].
         rho = np.mean(Ck, axis=0)
+        up_idx = np.arange(0, self.dim, 2)
+        down_idx = np.arange(1, self.dim, 2)
+
+        n_up = float(np.trace(rho[np.ix_(up_idx, up_idx)]).real)
+        n_down = float(np.trace(rho[np.ix_(down_idx, down_idx)]).real)
+
         h_hf = np.zeros((self.dim, self.dim), dtype=np.complex128)
-        if np.isclose(self.Vupdown, 0):
-            return h_hf, 0.0
+        h_hf[np.ix_(up_idx, up_idx)] += 0.5 * self.Vupdown * n_down * np.eye(len(up_idx))
+        h_hf[np.ix_(down_idx, down_idx)] += 0.5 * self.Vupdown * n_up * np.eye(len(down_idx))
 
-        spin_parity = np.arange(self.dim) % 2
-        opposite_spin_mask = (spin_parity[:, None] != spin_parity[None, :]).astype(np.complex128)
-
-        # Hartree term from Eq. (4.3): each state sees the total density of the opposite spin.
-        rho_diag = np.diag(rho)
-        hartree_diag = np.sum(opposite_spin_mask * rho_diag[:, None], axis=0)
-        h_hf[np.diag_indices(self.dim)] = 0.5 * self.Vupdown * hartree_diag
-
-        # Fock term from Eq. (4.3): only opposite-spin matrix elements contribute.
-        h_hf += -0.5 * self.Vupdown * (opposite_spin_mask * rho.T)
+        # Fock exchange only mixes opposite-spin sectors for this interaction.
+        h_hf[np.ix_(up_idx, down_idx)] -= 0.5 * self.Vupdown * rho[np.ix_(down_idx, up_idx)].T
+        h_hf[np.ix_(down_idx, up_idx)] -= 0.5 * self.Vupdown * rho[np.ix_(up_idx, down_idx)].T
 
         h_hf = 0.5 * (h_hf + h_hf.conj().T)
         return h_hf, np.sum(h_hf * rho) / 2
