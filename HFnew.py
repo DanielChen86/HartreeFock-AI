@@ -6,6 +6,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from HartreeFock import HartreeFock
 
+
+GAMMA_TRUNCATION = [(-6, -3), (-5, -4), (-5, -3), (-5, -2), (-5, -1), 
+                    (-4, -4), (-4, -3), (-4, -2), (-4, -1), (-4, 0), (-4, 1), 
+                    (-3, -5), (-3, -4), (-3, -3), (-3, -2), (-3, -1), (-3, 0), (-3, 1), (-3, 2), (-3, 3), 
+                    (-2, -5), (-2, -4), (-2, -3), (-2, -2), (-2, -1), (-2, 0), (-2, 1), (-2, 2), (-2, 3), 
+                    (-1, -4), (-1, -3), (-1, -2), (-1, -1), (-1, 0), (-1, 1), (-1, 2), (-1, 3), (-1, 4), 
+                    (0, -4), (0, -3), (0, -2), (0, -1), (0, 0), (0, 1), (0, 2), (0, 3), (0, 4), 
+                    (1, -4), (1, -3), (1, -2), (1, -1), (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), 
+                    (2, -3), (2, -2), (2, -1), (2, 0), (2, 1), (2, 2), (2, 3), (2, 4), (2, 5), 
+                    (3, -3), (3, -2), (3, -1), (3, 0), (3, 1), (3, 2), (3, 3), (3, 4), (3, 5), 
+                    (4, -1), (4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (5, 1), (5, 2), 
+                    (5, 3), (5, 4), (6, 3)]
+
 def IP(arr1, arr2):
     return np.sum(arr1 * arr2)
 def dagger(arr):
@@ -28,11 +41,11 @@ class HFSolution:
     energy_tol: float
     density_tol: float  # stores the final relative Frobenius deltaC (Eq. 5.7)
     chemical_potential: float | None
-    eigenvalues: np.ndarray  # shape (Nk, dim)
-    occupancies: np.ndarray  # shape (Nk, dim)
-    Ck: np.ndarray  # shape (Nk, dim, dim)
-    htb_k: np.ndarray  # shape (Nk, dim, dim)
-    h_k: np.ndarray  # shape (Nk, dim, dim)
+    eigenvalues: np.ndarray  # shape (N**2, dim)
+    occupancies: np.ndarray  # shape (N**2, dim)
+    Ck: np.ndarray  # shape (N**2, dim, dim)
+    htb_k: np.ndarray  # shape (N**2, dim, dim)
+    h_k: np.ndarray  # shape (N**2, dim, dim)
     rho_local: np.ndarray  # shape (dim, dim), averaged over k
     total_energy: float  # Trigonal-style: per-filled-band mean energy (or FD-weighted sum / numFilledBands)
     energy_per_cell: float
@@ -126,6 +139,7 @@ class HF:
         for key, val in self.hopping.items():
             DeltaR = key[0] * self.A[1] + key[1] * self.A[2]
             htb += np.exp(-1j * IP(k, DeltaR)) * val
+        assert np.allclose(htb, dagger(htb))
         return htb
 
     def build_Htb(self):
@@ -277,7 +291,7 @@ class HF:
                     # f"iter={it:4d} "
                     # f"E_part+Id={epp_with_identity_str} dC_rel={dC:.3e} dE={dE:.3e} "
                     # f"occ={occ.sum():.8f}/{self.Nocc_target:.8f} mu={mu_str}"
-                    f"E_part+Id={e_mean} dC_rel={dC:.3e} "
+                    f"e_mean={np.round(e_mean, 12):<20} dC_rel={dC:.3e} "
                 )
 
             Ck = C_mixed
@@ -322,6 +336,28 @@ class HF:
         #     total_energy_with_identity_per_cell=total_with_identity_per_cell,
         #     total_energy_with_identity_per_particle=total_with_identity_per_particle,
         # )
+        return h_hf
+
+    def build_effective_hopping(self, h_k):
+        effective_hopping = {}
+        for j1, j2 in GAMMA_TRUNCATION:
+            DeltaR = self.A[1] * j1 + self.A[2] * j2
+            tilde_gamma = np.zeros((self.dim, self.dim), dtype=complex)
+            for idx, grid in self.indexToKGrid.items():
+                n1, n2 = grid[0], grid[1]
+                k = n1 * self.G[1] / self.N + n2 * self.G[2] / self.N
+                exponent = np.exp(1j * IP(k, DeltaR))
+                tilde_gamma += exponent * h_k[idx, :, :]
+            effective_hopping[j1, j2] = tilde_gamma / self.N**2
+        return effective_hopping
+    
+    def HKtbEff(self, k, effective_hopping):
+        htb = np.zeros(shape=(self.dim, self.dim), dtype=complex)
+        for key, val in effective_hopping.items():
+            DeltaR = key[0] * self.A[1] + key[1] * self.A[2]
+            htb += np.exp(-1j * IP(k, DeltaR)) * val
+        assert np.allclose(htb, dagger(htb))
+        return htb
 
 
 if __name__ == '__main__':
@@ -379,5 +415,15 @@ if __name__ == '__main__':
     # assert np.allclose(C_new, hf_dft.tildeD)
     # assert np.allclose(np.sort(occ.reshape(-1).real), np.sort(hf_dft.FD_distribution(hf_dft.eigvals, hf_dft.mu).real))
     
-    model.solve(max_iter=3000, alpha=1, verbose=True)
+    h_hf = model.solve(max_iter=3000, alpha=1, verbose=True)
+    
+    
+    h_k = model.Htb + h_hf[None, :, :]
+    effective_hopping = model.build_effective_hopping(h_k)
+    for idx, grid in model.indexToKGrid.items():
+        k = grid[0] * model.G[1] / model.N + grid[1] * model.G[2] / model.N
+        eigvals1 = np.linalg.eigh(h_k[idx, :, :])[0]
+        eigvals2 = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
+        assert np.allclose(eigvals1, eigvals2)
+
     
