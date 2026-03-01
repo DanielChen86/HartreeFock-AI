@@ -251,13 +251,6 @@ class HF:
             if Ck.shape != (self.N**2, self.dim, self.dim):
                 raise ValueError(f"Ck0 must have shape {(self.N**2, self.dim, self.dim)}.")
 
-        converged = False
-        mu_last: float | None = None
-        e_prev: float | None = None
-        evals_last = np.empty((self.N**2, self.dim), dtype=float)
-        occ_last = np.empty((self.N**2, self.dim), dtype=float)
-        h_last = np.empty((self.N**2, self.dim, self.dim), dtype=np.complex128)
-
         for it in range(1, max_iter + 1):
             h_hf, e_hf = self.nearest_neighbor_electron_repulsion(Ck)
             h_k = self.Htb + h_hf[None, :, :]
@@ -268,75 +261,30 @@ class HF:
             occ = assert_real(occ)
             C_new = self.density_from_eigensystem(vecs, occ)
 
-            # Linear mixing from the note.
             C_mixed = (1.0 - alpha) * Ck + alpha * C_new
             C_mixed = 0.5 * (C_mixed + C_mixed.swapaxes(-1, -2).conj())
 
             dC = self.relative_frobenius_delta(C_mixed, Ck)
             e_mean = np.sum(evals * occ) / self.N**2
             e_mean = assert_real(e_mean)
-            # e_band = self._reported_total_energy(evals, occ)
-            # dE = float("inf") if e_prev is None else abs(e_band - e_prev)
+
+            Ck_sum = np.sum(Ck, axis=0)
+            n_sum = np.diag(Ck_sum)
+            spin_components = assert_real(np.sort([n_sum[0]+n_sum[2], n_sum[1]+n_sum[3]]))
+
 
             if verbose:
-                mu_str = "None" if mu is None else f"{mu:.8f}"
-                # hf_identity_total_iter, _ = self._hf_identity_energy(C_mixed)
-                # epp_with_identity = (
-                #     (e_sum + hf_identity_total_iter) / self.Nocc_target if self.Nocc_target > 0 else None
-                # )
-                # epp_with_identity_str = (
-                #     "None" if epp_with_identity is None else f"{epp_with_identity:.12f}"
-                # )
                 print(
-                    # f"iter={it:4d} "
-                    # f"E_part+Id={epp_with_identity_str} dC_rel={dC:.3e} dE={dE:.3e} "
-                    # f"occ={occ.sum():.8f}/{self.Nocc_target:.8f} mu={mu_str}"
-                    f"e_mean={np.round(e_mean, 12):<20} dC_rel={dC:.3e} "
+                    f"e_mean={np.round(e_mean, 12):<20} dC_rel={dC:.3e}   {np.round(spin_components[1], 1)}/{self.Nocc}"
                 )
 
             Ck = C_mixed
-            # e_prev = e_band
-            mu_last = mu
-            evals_last = evals
-            occ_last = occ
-            h_last = h_k
 
-            # Convergence condition from Sec. 5.2, Eq. (5.7): relative Frobenius norm.
             if dC < tol_dC:
                 converged = True
                 break
 
-        # rho = np.mean(Ck, axis=0)
-        # total_energy = (0.0 if e_prev is None else e_prev)
-        # final_e_sum = float(np.sum(evals_last * occ_last))
-        # energy_per_cell = final_e_sum / self.Nk
-        # energy_per_particle = (final_e_sum / self.Nocc_target) if self.Nocc_target > 0 else None
-        # hf_identity_total, hf_identity_per_cell = self._hf_identity_energy(Ck)
-        # total_with_identity_per_cell = energy_per_cell + hf_identity_per_cell
-        # total_with_identity_per_particle = (
-        #     (final_e_sum + hf_identity_total) / self.Nocc_target if self.Nocc_target > 0 else None
-        # )
-        # return HFSolution(
-        #     converged=converged,
-        #     iterations=it,
-        #     energy_tol=(0.0 if e_prev is None else (dE if np.isfinite(dE) else float("inf"))),
-        #     density_tol=dC,
-        #     chemical_potential=mu_last,
-        #     eigenvalues=evals_last,
-        #     occupancies=occ_last,
-        #     Ck=Ck,
-        #     htb_k=self.htb_k.copy(),
-        #     h_k=h_last,
-        #     rho_local=rho,
-        #     total_energy=total_energy,
-        #     energy_per_cell=energy_per_cell,
-        #     energy_per_particle=energy_per_particle,
-        #     hf_identity_energy_total=hf_identity_total,
-        #     hf_identity_energy_per_cell=hf_identity_per_cell,
-        #     total_energy_with_identity_per_cell=total_with_identity_per_cell,
-        #     total_energy_with_identity_per_particle=total_with_identity_per_particle,
-        # )
-        return h_hf
+        return h_k, Ck, converged
 
     def build_effective_hopping(self, h_k):
         effective_hopping = {}
@@ -415,10 +363,9 @@ if __name__ == '__main__':
     # assert np.allclose(C_new, hf_dft.tildeD)
     # assert np.allclose(np.sort(occ.reshape(-1).real), np.sort(hf_dft.FD_distribution(hf_dft.eigvals, hf_dft.mu).real))
     
-    h_hf = model.solve(max_iter=3000, alpha=1, verbose=True)
-    
-    
-    h_k = model.Htb + h_hf[None, :, :]
+    h_k, Ck, converged = model.solve(max_iter=3000, alpha=1, verbose=True)
+    print(f'convergence: {converged}')
+
     effective_hopping = model.build_effective_hopping(h_k)
     for idx, grid in model.indexToKGrid.items():
         k = grid[0] * model.G[1] / model.N + grid[1] * model.G[2] / model.N
