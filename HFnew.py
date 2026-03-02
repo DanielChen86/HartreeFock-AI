@@ -215,7 +215,7 @@ class HF:
             eigvecs[i, :, :] = vecs
         return eigvals, eigvecs
 
-    def nearest_neighbor_electron_repulsion(self, Ck: np.ndarray) -> np.ndarray:
+    def onsite_density_density(self, Ck: np.ndarray) -> np.ndarray:
         # rho_{sigma,sigma'} = (1/N^2) sum_k C_k[sigma,sigma']
         rho = np.mean(Ck, axis=0)
         # Exact on-site U0 Hartree-Fock single-particle shift from Eq. (4.2):
@@ -311,7 +311,7 @@ class HF:
 
         converged = False
         for it_ in range(1, max_iter + 1):
-            h_u0, e_u0 = self.nearest_neighbor_electron_repulsion(Ck)
+            h_u0, e_u0 = self.onsite_density_density(Ck)
             h_un, e_un = self.nearest_neighbor_density_density(Ck)
             h_vud, e_vud = self.on_site_hubbard_up_down(Ck)
             h_hf = h_un + h_u0[None, :, :] + h_vud[None, :, :]
@@ -399,7 +399,7 @@ if __name__ == '__main__':
     hf_dft.genInitialTwoPointCorrelation()
     Ck = hf_dft.twoPointCorrelation
 
-    h_u0, e_u0 = model.nearest_neighbor_electron_repulsion(Ck)
+    h_u0, e_u0 = model.onsite_density_density(Ck)
     assert np.allclose(h_u0, (hf_dft.U0 * (hf_dft.genHamiltonianHartreeU0() + hf_dft.genHamiltonianFockU0())[0, :, :]))
     h_vud, e_vud = model.on_site_hubbard_up_down(Ck)
     assert np.allclose(h_vud, (hf_dft.Uspin0 * (hf_dft.genHamiltonianHartreeUspin0() + hf_dft.genHamiltonianFockUspin0())[0, :, :]))
