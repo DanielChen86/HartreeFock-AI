@@ -56,10 +56,11 @@ class HFSolution:
     total_energy_with_identity_per_particle: float | None
 
 class HF:
-    def __init__(self, path, nu, N, U0=0, Vupdown=0, metal=True, kT=0.005):
+    def __init__(self, path, nu, N, U0=0, Un=0, Vupdown=0, metal=True, kT=0.005):
         self.path = path
         self.nu = nu
         self.U0 = U0
+        self.Un = Un
         self.Vupdown = Vupdown
         self.N = N
         self.metal = metal
@@ -225,6 +226,41 @@ class HF:
         h_hf = 0.5 * (h_hf + h_hf.conj().T)
         return h_hf, np.sum(h_hf * rho) / 2
 
+    def nearest_neighbor_density_density(self, Ck: np.ndarray) -> np.ndarray:
+        # Section 4.3: U_N/2 sum_{R,R'} n_R n_R' delta^{(N)}_{R-R'} on the
+        # triangular-lattice nearest-neighbor shell
+        # {(±1,0), (0,±1), (±1,±1)}.
+        if np.isclose(self.Un, 0.0):
+            h_hf = np.zeros((self.N**2, self.dim, self.dim), dtype=np.complex128)
+            return h_hf, 0.0
+
+        rho = np.mean(Ck, axis=0)
+        nbar = float(np.trace(rho).real)
+
+        nn_displacements = np.array([
+            self.A[1],
+            -self.A[1],
+            self.A[2],
+            -self.A[2],
+            self.A[1] + self.A[2],
+            -(self.A[1] + self.A[2]),
+        ])
+        k_vectors = np.zeros((self.N**2, 2), dtype=float)
+        for idx, (n1, n2) in self.indexToKGrid.items():
+            k_vectors[idx] = n1 * self.G[1] / self.N + n2 * self.G[2] / self.N
+
+        phases = np.exp(-1j * np.einsum('kd,ad->ka', k_vectors, nn_displacements))
+        rho_delta = np.einsum('ka,kij->aij', phases, Ck) / self.N**2
+
+        hartree = self.Un * len(nn_displacements) * nbar * np.eye(self.dim, dtype=np.complex128)
+        fock = -self.Un * np.einsum('ka,aij->kij', phases.conj(), rho_delta.swapaxes(-1, -2))
+        h_hf = hartree[None, :, :] + fock
+        h_hf = 0.5 * (h_hf + h_hf.swapaxes(-1, -2).conj())
+
+        e_hf = np.sum(h_hf * Ck) / (2 * self.N**2)
+        e_hf = assert_real(e_hf)
+        return h_hf, e_hf
+
     def on_site_hubbard_up_down(self, Ck: np.ndarray) -> np.ndarray:
         # Section 4.2: V_{up,down}/2 sum_{R,alpha,alpha'} n_{R alpha up} n_{R alpha' down}
         # with the local basis ordered as [alpha1 up, alpha1 down, alpha2 up, alpha2 down].
@@ -276,10 +312,11 @@ class HF:
         converged = False
         for it_ in range(1, max_iter + 1):
             h_u0, e_u0 = self.nearest_neighbor_electron_repulsion(Ck)
+            h_un, e_un = self.nearest_neighbor_density_density(Ck)
             h_vud, e_vud = self.on_site_hubbard_up_down(Ck)
-            h_hf = h_u0 + h_vud
-            e_hf = e_u0 + e_vud
-            h_k = self.Htb + h_hf[None, :, :]
+            h_hf = h_un + h_u0[None, :, :] + h_vud[None, :, :]
+            e_hf = e_u0 + e_un + e_vud
+            h_k = self.Htb + h_hf
             evals, vecs = self.diagonalize_blocks(h_k)
             evals = evals - e_hf
             evals = assert_real(evals)
@@ -336,13 +373,14 @@ class HF:
 
 if __name__ == '__main__':
     U0_ = 0.2
-    Vupdown = 0.3
+    Vupdown_ = 0.3
+    Un_ = 0.1
     metal_ = True
 
     model = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', 
-               nu=1, U0=U0_, Vupdown=Vupdown, N=12, metal=metal_)
+               nu=1, U0=U0_, Un=Un_, Vupdown=Vupdown_, N=12, metal=metal_)
 
-    hf_dft = TrigonalDFT2(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, U0=U0_, Uspin0=Vupdown, N=12, metal=metal_)
+    hf_dft = TrigonalDFT2(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, U0=U0_, Un0=Un_, Uspin0=Vupdown_, N=12, metal=metal_)
 
     # tb_path = Path("TightBindingModel/Re2CoO8/withSOCwannier-dim2")
     # if tb_path.exists():
@@ -361,16 +399,16 @@ if __name__ == '__main__':
     hf_dft.genInitialTwoPointCorrelation()
     Ck = hf_dft.twoPointCorrelation
 
-
-
     h_u0, e_u0 = model.nearest_neighbor_electron_repulsion(Ck)
     assert np.allclose(h_u0, (hf_dft.U0 * (hf_dft.genHamiltonianHartreeU0() + hf_dft.genHamiltonianFockU0())[0, :, :]))
     h_vud, e_vud = model.on_site_hubbard_up_down(Ck)
     assert np.allclose(h_vud, (hf_dft.Uspin0 * (hf_dft.genHamiltonianHartreeUspin0() + hf_dft.genHamiltonianFockUspin0())[0, :, :]))
-    h_hf = h_u0 + h_vud
-    e_hf = e_u0 + e_vud
-
-    h_k = model.Htb + h_hf[None, :, :]
+    h_un, e_un = model.nearest_neighbor_density_density(Ck)
+    assert np.allclose(h_un, (hf_dft.Un0 * (hf_dft.genHamiltonianHartreeUn0() + hf_dft.genHamiltonianFockUn0())))
+    h_hf = h_un + h_u0[None, :, :] + h_vud[None, :, :]
+    e_hf = e_u0 + e_un + e_vud
+    h_k = model.Htb + h_hf
+    
     evals, vecs = model.diagonalize_blocks(h_k)
     evals = evals - e_hf
     hf_dft.calculateSpectrum()
@@ -405,3 +443,4 @@ if __name__ == '__main__':
         eigvals1 = np.linalg.eigh(h_k[idx, :, :])[0]
         eigvals2 = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
         assert np.allclose(eigvals1, eigvals2)
+    print(np.trace(np.sum(Ck, axis=0)))
