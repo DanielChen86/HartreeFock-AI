@@ -5,6 +5,7 @@ from HartreeFockTrigonal import TrigonalDFT2
 from dataclasses import dataclass
 from pathlib import Path
 from HartreeFock import HartreeFock
+import datetime
 
 
 GAMMA_TRUNCATION = [(-6, -3), (-5, -4), (-5, -3), (-5, -2), (-5, -1), 
@@ -224,7 +225,7 @@ class HF:
         nbar = float(np.trace(rho).real)
         h_hf = self.U0 * nbar * np.eye(self.dim, dtype=np.complex128) - self.U0 * rho.T
         h_hf = 0.5 * (h_hf + h_hf.conj().T)
-        return h_hf, np.sum(h_hf * rho) / 2
+        return h_hf, np.sum(h_hf * rho) / 2 / self.nu
 
     def nearest_neighbor_density_density(self, Ck: np.ndarray) -> np.ndarray:
         # Section 4.3: U_N/2 sum_{R,R'} n_R n_R' delta^{(N)}_{R-R'} on the
@@ -259,7 +260,7 @@ class HF:
 
         e_hf = np.sum(h_hf * Ck) / (2 * self.N**2)
         e_hf = assert_real(e_hf)
-        return h_hf, e_hf
+        return h_hf, e_hf / self.nu
 
     def on_site_hubbard_up_down(self, Ck: np.ndarray) -> np.ndarray:
         # Section 4.2: V_{up,down}/2 sum_{R,alpha,alpha'} n_{R alpha up} n_{R alpha' down}
@@ -280,7 +281,7 @@ class HF:
         h_hf[np.ix_(down_idx, up_idx)] -= 0.5 * self.Vupdown * rho[np.ix_(up_idx, down_idx)].T
 
         h_hf = 0.5 * (h_hf + h_hf.conj().T)
-        return h_hf, np.sum(h_hf * rho) / 2
+        return h_hf, np.sum(h_hf * rho) / 2 / self.nu
 
     @staticmethod
     def relative_frobenius_delta(new: np.ndarray, old: np.ndarray) -> float:
@@ -376,11 +377,12 @@ if __name__ == '__main__':
     Vupdown_ = 0.3
     Un_ = 0.1
     metal_ = True
+    nu_ = 1
 
     model = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', 
-               nu=1, U0=U0_, Un=Un_, Vupdown=Vupdown_, N=12, metal=metal_)
+               nu=nu_, U0=U0_, Un=Un_, Vupdown=Vupdown_, N=12, metal=metal_)
 
-    hf_dft = TrigonalDFT2(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, U0=U0_, Un0=Un_, Uspin0=Vupdown_, N=12, metal=metal_)
+    hf_dft = TrigonalDFT2(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=nu_, U0=U0_, Un0=Un_, Uspin0=Vupdown_, N=12, metal=metal_)
 
     # tb_path = Path("TightBindingModel/Re2CoO8/withSOCwannier-dim2")
     # if tb_path.exists():
@@ -433,8 +435,9 @@ if __name__ == '__main__':
     hf_dft.updateTwoPointCorrelation(0)
     assert np.allclose(C_new, hf_dft.tildeD)
     assert np.allclose(np.sort(occ.reshape(-1).real), np.sort(hf_dft.FD_distribution(hf_dft.eigvals, hf_dft.mu).real))
-    
-    h_k, Ck, converged, it_ = model.solve(max_iter=5000, alpha=1, verbose=True)
+
+    now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
+    h_k, Ck, converged, it_ = model.solve(max_iter=5000, alpha=1, verbose=True, random_seed=now_int)
     print(f'convergence: {converged} / iteration: {it_}')
 
     effective_hopping = model.build_effective_hopping(h_k)
@@ -443,4 +446,4 @@ if __name__ == '__main__':
         eigvals1 = np.linalg.eigh(h_k[idx, :, :])[0]
         eigvals2 = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
         assert np.allclose(eigvals1, eigvals2)
-    print(np.trace(np.sum(Ck, axis=0)))
+    print(np.round(np.trace(np.sum(Ck, axis=0)), 2))
