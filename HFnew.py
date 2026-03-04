@@ -283,6 +283,23 @@ class HF:
         h_hf = 0.5 * (h_hf + h_hf.conj().T)
         return h_hf, np.sum(h_hf * rho) / 2 / self.nu
 
+    def hartree_fock_terms(self, Ck: np.ndarray) -> tuple[np.ndarray, float]:
+        h_u0, e_u0 = self.onsite_density_density(Ck)
+        h_un, e_un = self.nearest_neighbor_density_density(Ck)
+        h_vud, e_vud = self.on_site_hubbard_up_down(Ck)
+        h_hf = h_un + h_u0[None, :, :] + h_vud[None, :, :]
+        e_hf = assert_real(e_u0 + e_un + e_vud)
+        return h_hf, e_hf
+
+    def reference_Ck(self) -> np.ndarray:
+        """
+        Section 6 reference density C^(0): diagonalize h_tb(k) and fill it using the
+        same occupancy rule as the self-consistent iteration.
+        """
+        eigvals, eigvecs = self.diagonalize_blocks(self.Htb)
+        occ, _ = self.occupancies_from_energies(eigvals)
+        return self.density_from_eigensystem(eigvecs, occ)
+
     @staticmethod
     def relative_frobenius_delta(new: np.ndarray, old: np.ndarray) -> float:
         num = float(np.linalg.norm((new - old).ravel()))
@@ -298,6 +315,7 @@ class HF:
         tol_dC: float = 1e-6,
         random_seed: int | None = None,
         Ck0: np.ndarray | None = None,
+        subtract_reference: bool = False,
         verbose: bool = False,
     ) -> HFSolution:
         if not (0.0 < alpha <= 1.0):
@@ -310,16 +328,19 @@ class HF:
             if Ck.shape != (self.N**2, self.dim, self.dim):
                 raise ValueError(f"Ck0 must have shape {(self.N**2, self.dim, self.dim)}.")
 
+        if subtract_reference:
+            reference_Ck = self.reference_Ck()
+            h_ref, e_ref = self.hartree_fock_terms(reference_Ck)
+        else:
+            h_ref = np.zeros((self.N**2, self.dim, self.dim), dtype=np.complex128)
+            e_ref = 0.0
+
         converged = False
         for it_ in range(1, max_iter + 1):
-            h_u0, e_u0 = self.onsite_density_density(Ck)
-            h_un, e_un = self.nearest_neighbor_density_density(Ck)
-            h_vud, e_vud = self.on_site_hubbard_up_down(Ck)
-            h_hf = h_un + h_u0[None, :, :] + h_vud[None, :, :]
-            e_hf = e_u0 + e_un + e_vud
-            h_k = self.Htb + h_hf
+            h_hf, e_hf = self.hartree_fock_terms(Ck)
+            h_k = self.Htb - h_ref + h_hf
             evals, vecs = self.diagonalize_blocks(h_k)
-            evals = evals - e_hf
+            evals = evals - e_hf + e_ref
             evals = assert_real(evals)
             occ, mu = self.occupancies_from_energies(evals)
             occ = assert_real(occ)
@@ -373,71 +394,91 @@ class HF:
 
 
 if __name__ == '__main__':
-    U0_ = 0.2
-    Vupdown_ = 0.3
-    Un_ = 0.1
+    U0_ = 0.3
+    Un_ = 0.0
+    Vupdown_ = 0.0
     metal_ = True
     nu_ = 1
+    C0_modify_ = True
 
     model = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', 
                nu=nu_, U0=U0_, Un=Un_, Vupdown=Vupdown_, N=12, metal=metal_)
+    reference_Ck = model.reference_Ck()
 
-    hf_dft = TrigonalDFT2(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=nu_, U0=U0_, Un0=Un_, Uspin0=Vupdown_, N=12, metal=metal_)
-
-    # tb_path = Path("TightBindingModel/Re2CoO8/withSOCwannier-dim2")
-    # if tb_path.exists():
-    #     hf = HartreeFock(tb_path, nu=1, U0=U0_, N=12, metal=metal_)
-
-    ############################################################
-    for k, v in model.hopping.items():
-        assert np.allclose(v, hf_dft.Hamiltonian[k]['H']), (k, v - hf_dft.Hamiltonian[k]['H'])
-    for k, v in hf_dft.Hamiltonian.items():
-        assert np.allclose(model.hopping[k], v['H']), (k, v - hf_dft.Hamiltonian[k]['H'])
+    hf_dft = TrigonalDFT2(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=nu_, U0=U0_, Un0=Un_, Uspin0=Vupdown_, N=12, metal=metal_, C0_modify=C0_modify_)
     
-    for _ in range(30):
-        r1, r2 = np.random.rand(2)
-        assert np.allclose(model.HKtb(r1*model.G[1]+r2*model.G[2]), hf_dft.Hk(r1*hf_dft.G[1]+r2*hf_dft.G[2]))
-    
+    hf_dft.genC0()
+    hf_dft.genHC0()
     hf_dft.genInitialTwoPointCorrelation()
-    Ck = hf_dft.twoPointCorrelation
+    assert(np.allclose(reference_Ck, hf_dft.C0))
+    h_ref, e_ref = model.hartree_fock_terms(reference_Ck)
+    assert np.allclose(hf_dft.HC0, (h_ref - e_ref * np.eye(4)[None, :, :]))
 
-    h_u0, e_u0 = model.onsite_density_density(Ck)
-    assert np.allclose(h_u0, (hf_dft.U0 * (hf_dft.genHamiltonianHartreeU0() + hf_dft.genHamiltonianFockU0())[0, :, :]))
-    h_vud, e_vud = model.on_site_hubbard_up_down(Ck)
-    assert np.allclose(h_vud, (hf_dft.Uspin0 * (hf_dft.genHamiltonianHartreeUspin0() + hf_dft.genHamiltonianFockUspin0())[0, :, :]))
-    h_un, e_un = model.nearest_neighbor_density_density(Ck)
-    assert np.allclose(h_un, (hf_dft.Un0 * (hf_dft.genHamiltonianHartreeUn0() + hf_dft.genHamiltonianFockUn0())))
-    h_hf = h_un + h_u0[None, :, :] + h_vud[None, :, :]
-    e_hf = e_u0 + e_un + e_vud
-    h_k = model.Htb + h_hf
-    
+    if C0_modify_:
+        reference_Ck = model.reference_Ck()
+        h_ref, e_ref = model.hartree_fock_terms(reference_Ck)
+    else:
+        h_ref = np.zeros((model.N**2, model.dim, model.dim), dtype=np.complex128)
+        e_ref = 0.0
+
+    h_hf, e_hf = model.hartree_fock_terms(hf_dft.twoPointCorrelation)
+    h_k = model.Htb - h_ref + h_hf
     evals, vecs = model.diagonalize_blocks(h_k)
-    evals = evals - e_hf
-    hf_dft.calculateSpectrum()
-    assert np.allclose(np.sort(evals.reshape(-1)), hf_dft.eigvals), (np.sort(evals.reshape(-1))[:10], hf_dft.eigvals[:10])
-
-    # h_hf_ = hf._hartree_fock_shift(Ck)
-    # h_k_ = hf.htb_k + h_hf[None, :, :]
-    # evals_, vecs_ = hf._diagonalize_blocks(h_k_)
-    # occ_, mu_ = hf._occupancies_from_energies(evals_)
-    # C_new_ = hf._density_from_eigensystem(vecs_, occ_)
-
-    
-    ############################################################
-
+    evals = evals - e_hf + e_ref
+    evals = assert_real(evals)
     occ, mu = model.occupancies_from_energies(evals)
+    occ = assert_real(occ)
     C_new = model.density_from_eigensystem(vecs, occ)
 
-    # assert np.allclose(vecs, vecs_)
-    # assert np.allclose(occ, occ_)
-    # assert np.allclose(C_new, C_new_)
 
-    hf_dft.updateTwoPointCorrelation(0)
-    assert np.allclose(C_new, hf_dft.tildeD)
-    assert np.allclose(np.sort(occ.reshape(-1).real), np.sort(hf_dft.FD_distribution(hf_dft.eigvals, hf_dft.mu).real))
+    ############################################################
+    # for k, v in model.hopping.items():
+    #     assert np.allclose(v, hf_dft.Hamiltonian[k]['H']), (k, v - hf_dft.Hamiltonian[k]['H'])
+    # for k, v in hf_dft.Hamiltonian.items():
+    #     assert np.allclose(model.hopping[k], v['H']), (k, v - hf_dft.Hamiltonian[k]['H'])
+    
+    # for _ in range(30):
+    #     r1, r2 = np.random.rand(2)
+    #     assert np.allclose(model.HKtb(r1*model.G[1]+r2*model.G[2]), hf_dft.Hk(r1*hf_dft.G[1]+r2*hf_dft.G[2]))
+    
+    # hf_dft.genInitialTwoPointCorrelation()
+    # Ck = hf_dft.twoPointCorrelation
+
+    # h_u0, e_u0 = model.onsite_density_density(Ck)
+    # assert np.allclose(h_u0, (hf_dft.U0 * (hf_dft.genHamiltonianHartreeU0() + hf_dft.genHamiltonianFockU0())[0, :, :]))
+    # h_vud, e_vud = model.on_site_hubbard_up_down(Ck)
+    # assert np.allclose(h_vud, (hf_dft.Uspin0 * (hf_dft.genHamiltonianHartreeUspin0() + hf_dft.genHamiltonianFockUspin0())[0, :, :]))
+    # h_un, e_un = model.nearest_neighbor_density_density(Ck)
+    # assert np.allclose(h_un, (hf_dft.Un0 * (hf_dft.genHamiltonianHartreeUn0() + hf_dft.genHamiltonianFockUn0())))
+    # h_hf = h_un + h_u0[None, :, :] + h_vud[None, :, :]
+    # e_hf = e_u0 + e_un + e_vud
+    # h_k = model.Htb + h_hf - h_ref
+    
+    # evals, vecs = model.diagonalize_blocks(h_k)
+    # evals = evals - e_hf + e_ref
+    hf_dft.calculateSpectrum()
+    hf_dft.updateTwoPointCorrelation()
+    assert np.allclose(np.sort(evals.reshape(-1)), hf_dft.eigvals), (np.sort(evals.reshape(-1))[:10], hf_dft.eigvals[:10])
+    print(hf_dft.tildeD[0, :, :])
+    print(C_new[0, :, :])
+
+    
+    # ############################################################
+
+    # occ, mu = model.occupancies_from_energies(evals)
+    # C_new = model.density_from_eigensystem(vecs, occ)
+
+    # print(vecs - vecs_)
+    # assert np.allclose(vecs, vecs_)
+    # # assert np.allclose(occ, occ_)
+    # # assert np.allclose(C_new, C_new_)
+
+    # hf_dft.updateTwoPointCorrelation(0)
+    # assert np.allclose(C_new, hf_dft.tildeD)
+    # assert np.allclose(np.sort(occ.reshape(-1).real), np.sort(hf_dft.FD_distribution(hf_dft.eigvals, hf_dft.mu).real))
 
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
-    h_k, Ck, converged, it_ = model.solve(max_iter=5000, alpha=1, verbose=True, random_seed=now_int)
+    h_k, Ck, converged, it_ = model.solve(max_iter=5000, alpha=1, verbose=True, random_seed=now_int, subtract_reference=C0_modify_)
     print(f'convergence: {converged} / iteration: {it_}')
 
     effective_hopping = model.build_effective_hopping(h_k)
@@ -447,3 +488,23 @@ if __name__ == '__main__':
         eigvals2 = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
         assert np.allclose(eigvals1, eigvals2)
     print(np.round(np.trace(np.sum(Ck, axis=0)), 2))
+
+    # it_ = 0
+    # terminate = False
+    # while (not terminate) and (it_ < 2000):
+    #     hf_dft.calculateSpectrum()
+    #     hf_dft.updateTwoPointCorrelation(alpha=0.5)
+    #     print(f'{it_:<5}', end='')
+    #     if it_ >= 2 and it_ % 10 == 10-1:
+    #         energyChange = hf_dft.totalEnergy - energy_
+    #         energyDiff = hf_dft.genMeanKinetic() + hf_dft.genEnergyHF() - hf_dft.totalEnergy
+    #         twoPtChange = np.max(np.abs(hf_dft.twoPointCorrelation - twoPointCorrelation_))
+    #         frobeniusNorm = np.sqrt(np.sum((np.abs(hf_dft.twoPointCorrelation - twoPointCorrelation_))**2)) / np.sqrt(np.sum((np.abs(twoPointCorrelation_))**2))
+    #         print(f'   {energyDiff:<25}   {twoPtChange:<25}   {frobeniusNorm:<25}   {hf_dft.totalEnergy:<25}')
+    #         if (np.abs(frobeniusNorm) < 1e-6) \
+    #             or (np.abs(frobeniusNorm) < 2e-6 and it_ > 2000)\
+    #             or (np.abs(frobeniusNorm) < 4e-6 and it_ > 2500):
+    #             terminate = True
+    #     energy_ = hf_dft.totalEnergy
+    #     twoPointCorrelation_ = deepcopy(hf_dft.twoPointCorrelation)
+    #     it_ += 1
