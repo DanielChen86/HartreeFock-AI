@@ -192,19 +192,50 @@ class HF:
             Ck[i] = 0.5 * (Ck[i] + Ck[i].conj().T)
         return Ck
 
-    def build_Ck(self, Ck0=None, random_seed: int | None = None):
-        if not random_seed == None:
-            rng = np.random.default_rng(random_seed)
-            noise = rng.normal(scale=1e-6, size=(self.N**2, self.dim, self.dim))
-            noise = 0.5 * (noise + noise.swapaxes(-1, -2).conj())
-        else:
-            noise = 0
-        if Ck0 is None:
-            eigvals, eigvecs = self.diagonalize_blocks(self.Htb + noise)
-            occ, _ = self.occupancies_from_energies(eigvals)
-            return self.density_from_eigensystem(eigvecs, occ)
-        else:
+    def build_Ck(
+        self,
+        Ck0=None,
+        random_seed: int | None = None,
+        use_reference_filling: bool = False,
+        deviation: float = 1e-2,
+    ):
+        if Ck0 is not None:
             return Ck0
+
+        rng = np.random.default_rng(random_seed)
+        Ck = np.zeros((self.N**2, self.dim, self.dim), dtype=np.complex128)
+
+        if use_reference_filling:
+            reference_diag = np.diag(np.sum(self.reference_Ck(), axis=0)).real / self.Nocc
+        else:
+            reference_diag = np.full(self.dim, self.nu / self.dim, dtype=float)
+
+        for idx in range(self.N**2):
+            filling_deviation = deviation * rng.random(self.dim)
+            filling_deviation = filling_deviation - np.mean(filling_deviation)
+            filling = reference_diag + filling_deviation
+            if not np.all(filling > 0):
+                raise ValueError("Negative filling number in initial Ck.")
+
+            Ck[idx, np.arange(self.dim), np.arange(self.dim)] = filling
+
+            off_diagonal = (
+                rng.random((self.dim, self.dim)) + 1j * rng.random((self.dim, self.dim))
+            ) * deviation
+            np.fill_diagonal(off_diagonal, 0)
+            off_diagonal = 0.5 * (off_diagonal + off_diagonal.conj().T)
+            Ck[idx] += off_diagonal
+
+            Ck[idx] = 0.5 * (Ck[idx] + Ck[idx].conj().T)
+            if not np.all(np.linalg.eigvalsh(Ck[idx]) > 0):
+                raise ValueError("Initial Ck must be positive definite.")
+            if not np.all(np.linalg.eigvalsh(np.eye(self.dim) - Ck[idx]) > 0):
+                raise ValueError("Initial Ck must satisfy Ck < I.")
+
+        total_trace = np.trace(Ck, axis1=1, axis2=2).sum().real
+        if not np.isclose(total_trace, self.N**2 * self.nu):
+            raise ValueError("Initial Ck violates the particle-number constraint.")
+        return Ck
 
     def diagonalize_blocks(self, h):
         eigvals = np.zeros(shape=(h.shape[0], self.dim))
@@ -322,7 +353,10 @@ class HF:
             raise ValueError("mix must satisfy 0 < mix <= 1.")
 
         if Ck0 is None:
-            Ck = self.build_Ck(random_seed=random_seed)
+            Ck = self.build_Ck(
+                random_seed=random_seed,
+                use_reference_filling=subtract_reference,
+            )
         else:
             Ck = np.array(Ck0, dtype=np.complex128, copy=True)
             if Ck.shape != (self.N**2, self.dim, self.dim):
