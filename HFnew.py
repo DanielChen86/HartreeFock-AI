@@ -38,27 +38,6 @@ def interpolation(a, b, N, i):
 pi = np.pi
 
 
-@dataclass
-class HFSolution:
-    converged: bool
-    iterations: int
-    energy_tol: float
-    density_tol: float  # stores the final relative Frobenius deltaC (Eq. 5.7)
-    chemical_potential: float | None
-    eigenvalues: np.ndarray  # shape (N**2, dim)
-    occupancies: np.ndarray  # shape (N**2, dim)
-    Ck: np.ndarray  # shape (N**2, dim, dim)
-    htb_k: np.ndarray  # shape (N**2, dim, dim)
-    h_k: np.ndarray  # shape (N**2, dim, dim)
-    rho_local: np.ndarray  # shape (dim, dim), averaged over k
-    total_energy: float  # Trigonal-style: per-filled-band mean energy (or FD-weighted sum / numFilledBands)
-    energy_per_cell: float
-    energy_per_particle: float | None
-    hf_identity_energy_total: float  # Eq. (4.2) c-number term (system total)
-    hf_identity_energy_per_cell: float
-    total_energy_with_identity_per_cell: float  # band-energy-per-cell + Eq. (4.2) identity term
-    total_energy_with_identity_per_particle: float | None
-
 class HF:
     def __init__(self, path, nu, N, U0=0, Un=0, Vupdown=0, metal=True, kT=0.005):
         self.path = path
@@ -354,8 +333,7 @@ class HF:
         random_seed: int | None = None,
         Ck0: np.ndarray | None = None,
         subtract_reference: bool = False,
-        verbose: bool = False,
-    ) -> HFSolution:
+        verbose: bool = False):
         if not (0.0 < alpha <= 1.0):
             raise ValueError("mix must satisfy 0 < mix <= 1.")
 
@@ -435,12 +413,12 @@ class HF:
 
 
 if __name__ == '__main__':
-    U0_ = 0.1
-    Un_ = 0.2
-    Vupdown_ = 0.3
+    U0_ = 0.
+    Un_ = 0.
+    Vupdown_ = 0.0
     metal_ = True
     nu_ = 1
-    C0_modify_ = True
+    C0_modify_ = False
 
     model = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', 
                nu=nu_, U0=U0_, Un=Un_, Vupdown=Vupdown_, N=12, metal=metal_)
