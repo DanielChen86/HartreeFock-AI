@@ -1,8 +1,10 @@
 import argparse
 from itertools import product
 import numpy as np
+import matplotlib.pyplot as plt
 from HFnew import HF
 import datetime
+from HartreeFockTrigonalCDW import TrigonalCDWDFT2
 
 
 GAMMA_TRUNCATION = [(-6, -3), (-5, -4), (-5, -3), (-5, -2), (-5, -1), 
@@ -43,10 +45,11 @@ class HFsuper:
     __init__ -> read_path -> define_convention -> build_hopping -> build_Htb/build_Htb_super
     """
 
-    def __init__(self, path, nu, N, metal=True, kT=0.005):
+    def __init__(self, path, nu, N, U0=0.0, metal=True, kT=0.005):
         self.path = path
         self.nu = nu
         self.N = N
+        self.U0 = U0
         self.metal = metal
         self.kT = kT
 
@@ -272,14 +275,34 @@ class HFsuper:
         if not np.isclose(total_trace, self.N**2 * self.nuSuper):
             raise ValueError("Initial Ck violates the particle-number constraint.")
         return Ck
-    
+
+    def onsite_density_density(self, Ck):
+        # Supercell generalization of HFnew.onsite_density_density:
+        # rho = (1/N^2) sum_k C_k over the 12x12 supercell basis.
+        # On-site U0 acts locally on each sublattice block (4x4 each).
+        rho = np.mean(Ck, axis=0)
+        h_hf = np.zeros((self.dimSuper, self.dimSuper), dtype=np.complex128)
+
+        for j in range(self.numSub):
+            sl = slice(j * self.dim, (j + 1) * self.dim)
+            rho_j = rho[sl, sl]
+            nbar_j = float(np.trace(rho_j).real)
+            h_j = self.U0 * nbar_j * np.eye(self.dim, dtype=np.complex128) - self.U0 * rho_j.T
+            h_hf[sl, sl] = h_j
+
+        h_hf = 0.5 * (h_hf + h_hf.conj().T)
+        e_hf = np.sum(h_hf * rho) / 2 / self.nuSuper
+        return h_hf, assert_real(e_hf)
+
     def hartree_fock_terms(self, Ck: np.ndarray) -> tuple[np.ndarray, float]:
-        # h_u0, e_u0 = self.onsite_density_density(Ck)
+        h_u0, e_u0 = self.onsite_density_density(Ck)
         # h_un, e_un = self.nearest_neighbor_density_density(Ck)
         # h_vud, e_vud = self.on_site_hubbard_up_down(Ck)
         # h_hf = h_un + h_u0[None, :, :] + h_vud[None, :, :]
         # e_hf = assert_real(e_u0 + e_un + e_vud)
-        return np.zeros((self.N**2, self.dimSuper, self.dimSuper)), 0
+        h_hf = h_u0[None, :, :]
+        e_hf = assert_real(e_u0)
+        return h_hf, e_hf
 
     def diagonalize_blocks(self, h):
         eigvals = np.zeros(shape=(h.shape[0], self.dimSuper))
@@ -428,11 +451,51 @@ class HFsuper:
         assert np.allclose(htb, dagger(htb))
         return htb
 
-if __name__ == "__main__":
-    
 
-    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12)
-    model0 = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12)
+if __name__ == "__main__":
+    U0_ = 0.25
+
+    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_)
+    now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
+    h_k, e_hf, Ck, converged, it_ = model.solve(max_iter=10000, alpha=0.8, verbose=True, random_seed=now_int, subtract_reference=False)
+    print(f'convergence: {converged} / iteration: {it_}')
+    effective_hopping = model.build_effective_hopping(h_k)
+
+    for idx, grid in model.indexToKGrid.items():
+        k = grid[0] * model.Gs[1] / model.N + grid[1] * model.Gs[2] / model.N
+        eigvals1 = np.linalg.eigh(h_k[idx, :, :])[0]
+        eigvals2 = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
+        assert np.allclose(eigvals1, eigvals2)
+    print(np.round(np.trace(np.sum(Ck, axis=0)), 2))
+
+    N_high_symmetry = 100
+    band_structure = np.zeros((3*N_high_symmetry+1, model.dimSuper))
+    for i in range(N_high_symmetry):
+        k = interpolation(model.GammaSuper, model.Ksuper, N_high_symmetry, i)
+        eigvals = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
+        band_structure[i, :] = eigvals - e_hf
+
+        k = interpolation(model.Ksuper, model.Msuper, N_high_symmetry, i)
+        eigvals = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
+        band_structure[N_high_symmetry+i, :] = eigvals - e_hf
+
+        k = interpolation(model.Msuper, model.GammaSuper, N_high_symmetry, i)
+        eigvals = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
+        band_structure[2*N_high_symmetry+i, :] = eigvals - e_hf
+    k = model.GammaSuper
+    eigvals = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
+    band_structure[3*N_high_symmetry, :] = eigvals - e_hf
+    for bnd in range(model.dimSuper):
+        plt.plot(np.arange(3*N_high_symmetry+1), band_structure[:, bnd], color='k')
+    plt.show()
+
+
+
+if __name__ == "__main1__":
+    U0_ = 0.1
+
+    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_)
+    model0 = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_)
     Delta_k = np.random.rand() * model0.G[1] + np.random.rand() * model0.G[2]
 
     arr1 = (np.linalg.eigh(model.HKtb_super(model.GammaSuper + Delta_k))[0])
@@ -449,11 +512,58 @@ if __name__ == "__main__":
     print(f'convergence: {converged} / iteration: {it_}')
     effective_hopping = model.build_effective_hopping(h_k)
 
+    now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
+    h_k_0, e_hf_0, Ck_0, converged_0, it_ = model0.solve(max_iter=5000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=False)
+    print(f'convergence: {converged_0} / iteration: {it_}')
+    effective_hopping0 = model0.build_effective_hopping(h_k_0)
+
     for idx, grid in model.indexToKGrid.items():
         k = grid[0] * model.Gs[1] / model.N + grid[1] * model.Gs[2] / model.N
         eigvals1 = np.linalg.eigh(h_k[idx, :, :])[0]
         eigvals2 = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
         assert np.allclose(eigvals1, eigvals2)
     print(np.round(np.trace(np.sum(Ck, axis=0)), 2))
+
+
+    Delta_k = np.random.rand() * model0.G[1] + np.random.rand() * model0.G[2]
+    Delta_k = 0.1 * model0.G[1] + 0.2 * model0.G[2]
+
+    arr1 = (np.linalg.eigh(model.HKtbEff(model.GammaSuper + Delta_k, effective_hopping))[0]) - e_hf
+
+    arr2a = (np.linalg.eigh(model0.HKtbEff(model0.Gamma + Delta_k, effective_hopping0))[0])
+    arr2b = (np.linalg.eigh(model0.HKtbEff(model0.K + Delta_k, effective_hopping0))[0])
+    arr2c = (np.linalg.eigh(model0.HKtbEff(-model0.K + Delta_k, effective_hopping0))[0])
+    arr2 = np.concat([arr2a, arr2b, arr2c]) - e_hf_0
+
+    if np.isclose(U0_, 0):
+        assert np.allclose(np.sort(arr1), np.sort(arr2))
+    # print(np.sort(arr1))
+    # print(np.sort(arr2))
+    # print(np.sort(arr1) - np.sort(arr2))
+
+    ############################################################
+
+    model_cdw = TrigonalCDWDFT2('TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, U0=U0_, N=12, metal=True)
+    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_)
+
+    model_cdw.genInitialTwoPointCorrelation()
+    Ck = model.build_Ck(Ck0=model_cdw.twoPointCorrelation)
+
+    
+    model_cdw.calculateSpectrum()
+    model_cdw.updateTwoPointCorrelation(alpha=0.5)
+    
+    h_hf, e_hf = model.hartree_fock_terms(Ck)
+    h_k = model.HtbSuper + h_hf
+    evals, vecs = model.diagonalize_blocks(h_k)
+    evals = evals - e_hf
+    evals = assert_real(evals)
+    occ, mu = model.occupancies_from_energies(evals)
+    occ = assert_real(occ)
+    C_new = model.density_from_eigensystem(vecs, occ)
+
+    print(np.sort((evals).reshape(-1)) - model_cdw.eigvals)
+
+    print((C_new - model_cdw.tildeD))
 
 
