@@ -45,11 +45,12 @@ class HFsuper:
     __init__ -> read_path -> define_convention -> build_hopping -> build_Htb/build_Htb_super
     """
 
-    def __init__(self, path, nu, N, U0=0.0, metal=True, kT=0.005):
+    def __init__(self, path, nu, N, U0=0.0, Vupdown=0.0, metal=True, kT=0.005):
         self.path = path
         self.nu = nu
         self.N = N
         self.U0 = U0
+        self.Vupdown = Vupdown
         self.metal = metal
         self.kT = kT
 
@@ -290,18 +291,50 @@ class HFsuper:
             h_j = self.U0 * nbar_j * np.eye(self.dim, dtype=np.complex128) - self.U0 * rho_j.T
             h_hf[sl, sl] = h_j
 
-        h_hf = 0.5 * (h_hf + h_hf.conj().T)
+        assert np.allclose(h_hf, dagger(h_hf))
+        e_hf = np.sum(h_hf * rho) / 2 / self.nuSuper
+        return h_hf, assert_real(e_hf)
+
+    def on_site_hubbard_up_down(self, Ck):
+        # Supercell analogue of HFnew.on_site_hubbard_up_down:
+        # apply the local spin-up/spin-down interaction within each sublattice block.
+        rho = np.mean(Ck, axis=0)
+        h_hf = np.zeros((self.dimSuper, self.dimSuper), dtype=np.complex128)
+        g = self.Vupdown
+        if np.isclose(g, 0.0):
+            return h_hf, 0.0
+
+        up_local = np.array([0, 2], dtype=int)
+        down_local = np.array([1, 3], dtype=int)
+
+        for j in range(self.numSub):
+            sl = slice(j * self.dim, (j + 1) * self.dim)
+            rho_j = rho[sl, sl]
+
+            n_up = float(np.trace(rho_j[np.ix_(up_local, up_local)]).real)
+            n_down = float(np.trace(rho_j[np.ix_(down_local, down_local)]).real)
+
+            h_j = np.zeros((self.dim, self.dim), dtype=np.complex128)
+            h_j[np.ix_(up_local, up_local)] += 0.5 * g * n_down * np.eye(len(up_local))
+            h_j[np.ix_(down_local, down_local)] += 0.5 * g * n_up * np.eye(len(down_local))
+
+            # Fock exchange only mixes opposite-spin sectors.
+            h_j[np.ix_(up_local, down_local)] -= 0.5 * g * rho_j[np.ix_(down_local, up_local)].T
+            h_j[np.ix_(down_local, up_local)] -= 0.5 * g * rho_j[np.ix_(up_local, down_local)].T
+            h_hf[sl, sl] = h_j
+
+        assert np.allclose(h_hf, dagger(h_hf))
         e_hf = np.sum(h_hf * rho) / 2 / self.nuSuper
         return h_hf, assert_real(e_hf)
 
     def hartree_fock_terms(self, Ck: np.ndarray) -> tuple[np.ndarray, float]:
         h_u0, e_u0 = self.onsite_density_density(Ck)
         # h_un, e_un = self.nearest_neighbor_density_density(Ck)
-        # h_vud, e_vud = self.on_site_hubbard_up_down(Ck)
+        h_vud, e_vud = self.on_site_hubbard_up_down(Ck)
         # h_hf = h_un + h_u0[None, :, :] + h_vud[None, :, :]
         # e_hf = assert_real(e_u0 + e_un + e_vud)
-        h_hf = h_u0[None, :, :]
-        e_hf = assert_real(e_u0)
+        h_hf = h_u0[None, :, :] + h_vud[None, :, :]
+        e_hf = assert_real(e_u0 + e_vud)
         return h_hf, e_hf
 
     def diagonalize_blocks(self, h):
@@ -454,10 +487,11 @@ class HFsuper:
 
 if __name__ == "__main__":
     U0_ = 0.25
+    Vupdown_ = 0.1
 
-    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_)
+    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Vupdown=Vupdown_)
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
-    h_k, e_hf, Ck, converged, it_ = model.solve(max_iter=10000, alpha=0.8, verbose=True, random_seed=now_int, subtract_reference=False)
+    h_k, e_hf, Ck, converged, it_ = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=False)
     print(f'convergence: {converged} / iteration: {it_}')
     effective_hopping = model.build_effective_hopping(h_k)
 
@@ -492,64 +526,15 @@ if __name__ == "__main__":
 
 
 if __name__ == "__main1__":
-    U0_ = 0.1
+    U0_ = 0.
+    Vupdown_ = 0.1
 
-    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_)
-    model0 = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_)
-    Delta_k = np.random.rand() * model0.G[1] + np.random.rand() * model0.G[2]
-
-    arr1 = (np.linalg.eigh(model.HKtb_super(model.GammaSuper + Delta_k))[0])
-
-    arr2a = (np.linalg.eigh(model0.HKtb(model0.Gamma + Delta_k))[0])
-    arr2b = (np.linalg.eigh(model0.HKtb(model0.K + Delta_k))[0])
-    arr2c = (np.linalg.eigh(model0.HKtb(-model0.K + Delta_k))[0])
-    arr2 = np.concat([arr2a, arr2b, arr2c])
-
-    assert np.allclose(np.sort(arr1), np.sort(arr2))
-
-    now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
-    h_k, e_hf, Ck, converged, it_ = model.solve(max_iter=5000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=False)
-    print(f'convergence: {converged} / iteration: {it_}')
-    effective_hopping = model.build_effective_hopping(h_k)
-
-    now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
-    h_k_0, e_hf_0, Ck_0, converged_0, it_ = model0.solve(max_iter=5000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=False)
-    print(f'convergence: {converged_0} / iteration: {it_}')
-    effective_hopping0 = model0.build_effective_hopping(h_k_0)
-
-    for idx, grid in model.indexToKGrid.items():
-        k = grid[0] * model.Gs[1] / model.N + grid[1] * model.Gs[2] / model.N
-        eigvals1 = np.linalg.eigh(h_k[idx, :, :])[0]
-        eigvals2 = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
-        assert np.allclose(eigvals1, eigvals2)
-    print(np.round(np.trace(np.sum(Ck, axis=0)), 2))
-
-
-    Delta_k = np.random.rand() * model0.G[1] + np.random.rand() * model0.G[2]
-    Delta_k = 0.1 * model0.G[1] + 0.2 * model0.G[2]
-
-    arr1 = (np.linalg.eigh(model.HKtbEff(model.GammaSuper + Delta_k, effective_hopping))[0]) - e_hf
-
-    arr2a = (np.linalg.eigh(model0.HKtbEff(model0.Gamma + Delta_k, effective_hopping0))[0])
-    arr2b = (np.linalg.eigh(model0.HKtbEff(model0.K + Delta_k, effective_hopping0))[0])
-    arr2c = (np.linalg.eigh(model0.HKtbEff(-model0.K + Delta_k, effective_hopping0))[0])
-    arr2 = np.concat([arr2a, arr2b, arr2c]) - e_hf_0
-
-    if np.isclose(U0_, 0):
-        assert np.allclose(np.sort(arr1), np.sort(arr2))
-    # print(np.sort(arr1))
-    # print(np.sort(arr2))
-    # print(np.sort(arr1) - np.sort(arr2))
-
-    ############################################################
-
-    model_cdw = TrigonalCDWDFT2('TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, U0=U0_, N=12, metal=True)
-    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_)
+    model_cdw = TrigonalCDWDFT2('TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, U0=U0_, Uspin0=Vupdown_, N=12, metal=True)
+    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Vupdown=Vupdown_)
 
     model_cdw.genInitialTwoPointCorrelation()
     Ck = model.build_Ck(Ck0=model_cdw.twoPointCorrelation)
 
-    
     model_cdw.calculateSpectrum()
     model_cdw.updateTwoPointCorrelation(alpha=0.5)
     
@@ -562,8 +547,8 @@ if __name__ == "__main1__":
     occ = assert_real(occ)
     C_new = model.density_from_eigensystem(vecs, occ)
 
-    print(np.sort((evals).reshape(-1)) - model_cdw.eigvals)
+    assert np.allclose(np.sort((evals).reshape(-1)), model_cdw.eigvals)
 
-    print((C_new - model_cdw.tildeD))
+    print(np.max(np.abs(C_new - model_cdw.tildeD)))
 
 
