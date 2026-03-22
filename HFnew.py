@@ -411,11 +411,63 @@ class HF:
         assert np.allclose(htb, dagger(htb))
         return htb
 
+    def total_chern_number(
+        self,
+        effective_hopping,
+        grid_N,
+        num_filled: int | None = None,
+        return_berry_curvature: bool = False,
+    ):
+        """
+        Compute the total Chern number of filled bands for HKtbEff built from
+        `effective_hopping`, sampled on a `grid_N x grid_N` mesh.
+        """
+        if grid_N <= 1:
+            raise ValueError("grid_N must be > 1.")
+
+        if num_filled is None:
+            num_filled = int(self.nu)
+        if not (0 < num_filled <= self.dim):
+            raise ValueError(f"num_filled must satisfy 0 < num_filled <= {self.dim}.")
+
+        occupied = np.zeros((grid_N, grid_N, self.dim, num_filled), dtype=np.complex128)
+        for n1, n2 in product(*([range(grid_N)] * 2)):
+            k = n1 * self.G[1] / grid_N + n2 * self.G[2] / grid_N
+            h_k = self.HKtbEff(k, effective_hopping)
+            _, eigvecs = np.linalg.eigh(h_k)
+            occupied[n1, n2] = eigvecs[:, :num_filled]
+
+        def link_variable(n1: int, n2: int, dn1: int, dn2: int) -> complex:
+            psi = occupied[n1, n2]
+            psi_next = occupied[(n1 + dn1) % grid_N, (n2 + dn2) % grid_N]
+            overlap = psi.conj().T @ psi_next
+            # Stable unitary projection of overlap (polar decomposition via SVD).
+            u, _, vh = np.linalg.svd(overlap, full_matrices=False)
+            det_unitary = np.linalg.det(u @ vh)
+            mag = np.abs(det_unitary)
+            if mag < 1e-14:
+                return 1.0 + 0.0j
+            return det_unitary / mag
+
+        berry_curvature = np.zeros((grid_N, grid_N), dtype=float)
+        for n1, n2 in product(*([range(grid_N)] * 2)):
+            u1 = link_variable(n1, n2, 1, 0)
+            u2 = link_variable((n1 + 1) % grid_N, n2, 0, 1)
+            u1_back = np.conjugate(link_variable(n1, (n2 + 1) % grid_N, 1, 0))
+            u2_back = np.conjugate(link_variable(n1, n2, 0, 1))
+            wilson_loop = u1 * u2 * u1_back * u2_back
+            berry_curvature[n1, n2] = np.angle(wilson_loop) / (2 * np.pi)
+
+        chern_number = float(np.sum(berry_curvature))
+        if return_berry_curvature:
+            return chern_number, berry_curvature
+        return chern_number
+
 
 if __name__ == '__main__':
-    U0_ = 0.
-    Un_ = 0.
-    Vupdown_ = 0.0
+    U0_ = 0.4
+    Un_ = 0.2
+    Vupdown_ = 0.5
     metal_ = True
     nu_ = 1
     C0_modify_ = False
@@ -435,6 +487,8 @@ if __name__ == '__main__':
         eigvals2 = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
         assert np.allclose(eigvals1, eigvals2)
     print(np.round(np.trace(np.sum(Ck, axis=0)), 2))
+
+    print(model.total_chern_number(effective_hopping, 40, model.nu))
 
     N_high_symmetry = 100
     band_structure = np.zeros((3*N_high_symmetry+1, model.dim))
@@ -456,4 +510,3 @@ if __name__ == '__main__':
     for bnd in range(model.dim):
         plt.plot(np.arange(3*N_high_symmetry+1), band_structure[:, bnd], color='k')
     plt.show()
-
