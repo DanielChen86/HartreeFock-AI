@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from HFnew import HF
 import datetime
 from HartreeFockTrigonalCDW import TrigonalCDWDFT2
-
+import pandas as pd
 
 GAMMA_TRUNCATION = [(-6, -3), (-5, -4), (-5, -3), (-5, -2), (-5, -1), 
                     (-4, -4), (-4, -3), (-4, -2), (-4, -1), (-4, 0), (-4, 1), 
@@ -830,10 +830,6 @@ if __name__ == "__main__":
     V_ = 0.08
     Vn_ = 0.19
 
-    U0_ = 0.15
-    Un_ = 0.
-    V_ = 0.0
-    Vn_ = 0.
 
 
     model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
@@ -878,5 +874,82 @@ if __name__ == "__main__":
         plt.plot(np.arange(3*N_high_symmetry+1), band_structure[:, bnd], color='k')
     plt.hlines(mu, 0, 3*N_high_symmetry+1, colors='b', linestyles='--', alpha=0.5, linewidth=0.7)
     
-    print(band_structure[10, :])
     plt.show()
+
+
+if __name__ == "__main1__":
+
+    U0_ = 0.15
+    Un_ = 0.
+    V_ = 0.
+    Vn_ = 0.
+
+
+    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
+    model0 = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, Vupdown=V_)
+
+    now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
+
+    h_k, e_hf, Ck, mu, converged, it_ = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=False)
+    print(f'convergence: {converged} / iteration: {it_}')
+    effective_hopping = model.build_effective_hopping(h_k)
+
+    h_k0, e_hf0, Ck0, converged, it_ = model0.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=False)
+    print(f'convergence: {converged} / iteration: {it_}')
+    effective_hopping0 = model0.build_effective_hopping(h_k0)
+
+    N_high_symmetry = 30
+    band_structure = np.zeros((3*N_high_symmetry+1, model.dimSuper))
+    for i in range(N_high_symmetry):
+        k = interpolation(model.GammaSuper, model.Ksuper, N_high_symmetry, i)
+        eigvals = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
+        band_structure[i, :] = eigvals - e_hf
+
+        k = interpolation(model.Ksuper, model.Msuper, N_high_symmetry, i)
+        eigvals = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
+        band_structure[N_high_symmetry+i, :] = eigvals - e_hf
+
+        k = interpolation(model.Msuper, model.GammaSuper, N_high_symmetry, i)
+        eigvals = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
+        band_structure[2*N_high_symmetry+i, :] = eigvals - e_hf
+    k = model.GammaSuper
+    eigvals = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
+    band_structure[3*N_high_symmetry, :] = eigvals - e_hf
+    for bnd in range(model.dimSuper):
+        plt.plot(np.arange(3*N_high_symmetry+1), band_structure[:, bnd], color='k')
+
+    colors = ['r', 'g', 'b']
+    for idx, k0 in enumerate([model0.Gamma, model0.K, -model0.K]):
+        band_structure = np.zeros((3*N_high_symmetry+1, model0.dim))
+        for i in range(N_high_symmetry):
+            k = k0 + interpolation(model.GammaSuper, model.Ksuper, N_high_symmetry, i)
+            eigvals = np.linalg.eigh(model0.HKtbEff(k, effective_hopping0))[0]
+            band_structure[i, :] = eigvals - e_hf
+
+            k = k0 + interpolation(model.Ksuper, model.Msuper, N_high_symmetry, i)
+            eigvals = np.linalg.eigh(model0.HKtbEff(k, effective_hopping0))[0]
+            band_structure[N_high_symmetry+i, :] = eigvals - e_hf
+
+            k = k0 + interpolation(model.Msuper, model.GammaSuper, N_high_symmetry, i)
+            eigvals = np.linalg.eigh(model0.HKtbEff(k, effective_hopping0))[0]
+            band_structure[2*N_high_symmetry+i, :] = eigvals - e_hf
+        k = k0 + model.GammaSuper
+        eigvals = np.linalg.eigh(model0.HKtbEff(k, effective_hopping0))[0]
+        band_structure[3*N_high_symmetry, :] = eigvals - e_hf
+        for bnd in range(model0.dim):
+            plt.plot(np.arange(3*N_high_symmetry+1), band_structure[:, bnd], color=colors[idx], linestyle='--')
+
+    df_dict = {}
+    for qIdx in range(3):
+        for orbIdx in range(2):
+            CkSub = Ck.sum(axis=0)[4*qIdx:4*(qIdx+1), 4*qIdx:4*(qIdx+1)][2*orbIdx:2*(orbIdx+1), 2*orbIdx:2*(orbIdx+1)]
+            df_dict[qIdx, orbIdx] = {}
+            df_dict[qIdx, orbIdx]['X'] = assert_real(CkSub[0, 1] + CkSub[1, 0])
+            df_dict[qIdx, orbIdx]['Y'] = assert_real(-1j * (CkSub[0, 1] - CkSub[1, 0]))
+            df_dict[qIdx, orbIdx]['Z'] = assert_real(CkSub[0, 0] - CkSub[1, 1])
+            df_dict[qIdx, orbIdx]['N'] = assert_real(CkSub[0, 0] + CkSub[1, 1] / model.N**2)
+    df = pd.DataFrame(df_dict).T
+    print(df)
+
+    plt.show()
+
