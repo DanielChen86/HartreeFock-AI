@@ -45,13 +45,14 @@ class HFsuper:
     __init__ -> read_path -> define_convention -> build_hopping -> build_Htb/build_Htb_super
     """
 
-    def __init__(self, path, nu, N, U0=0.0, Un=0.0, Vupdown=0.0, metal=True, kT=0.005):
+    def __init__(self, path, nu, N, U0=0.0, Un=0.0, V=0.0, Vn=0.0, metal=True, kT=0.005):
         self.path = path
         self.nu = nu
         self.N = N
         self.U0 = U0
         self.Un = Un
-        self.Vupdown = Vupdown
+        self.V = V
+        self.Vn = Vn
         self.metal = metal
         self.kT = kT
 
@@ -433,7 +434,7 @@ class HFsuper:
         # apply the local spin-up/spin-down interaction within each sublattice block.
         rho = np.mean(Ck, axis=0)
         h_hf = np.zeros((self.dimSuper, self.dimSuper), dtype=np.complex128)
-        g = self.Vupdown
+        g = self.V
         if np.isclose(g, 0.0):
             return h_hf, 0.0
 
@@ -459,13 +460,156 @@ class HFsuper:
         assert np.allclose(h_hf, dagger(h_hf))
         e_hf = np.sum(h_hf * rho) / 2 / self.nuSuper
         return h_hf, assert_real(e_hf)
+    
+    def nearest_neighbor_hubbard_up_down0(self, Ck: np.ndarray) -> np.ndarray:
+        if np.isclose(self.Vn, 0.0):
+            h_hf = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=np.complex128)
+            return h_hf, 0.0
+
+        nn_displacements_increase = [
+                self.A[1],
+                self.A[2],
+                -(self.A[1] + self.A[2]),
+            ]
+        nn_displacements_decrease = [
+                - self.A[1],
+                - self.A[2],
+                self.A[1] + self.A[2],
+            ]
+
+        h_hf_hartree = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=complex)
+        for kIdx1, kIdx2 in product(*([list(self.indexToKGrid.keys())]*2)):
+            for j2 in range(3):
+                for displacement in nn_displacements_increase:
+                    k1 = self.indexToKGrid[kIdx1][0] * self.Gs[1] / self.N + self.indexToKGrid[kIdx1][1] * self.Gs[2] / self.N
+                    k2 = self.indexToKGrid[kIdx2][0] * self.Gs[1] / self.N + self.indexToKGrid[kIdx2][1] * self.Gs[2] / self.N
+                    j1 = (j2 + 1) % 3
+                    h_hf_hartree[kIdx2, self.dim*j2+1:self.dim*(j2+1):2, self.dim*j2+1:self.dim*(j2+1):2] += np.diag([np.trace(Ck[kIdx1, self.dim*j1:self.dim*(j1+1):2, self.dim*j1:self.dim*(j1+1):2])] * (self.dim // 2)) / self.N**2 / 2
+                    h_hf_hartree[kIdx2, self.dim*j2:self.dim*(j2+1):2, self.dim*j2:self.dim*(j2+1):2] += np.diag([np.trace(Ck[kIdx1, self.dim*j1+1:self.dim*(j1+1):2, self.dim*j1+1:self.dim*(j1+1):2])] * (self.dim // 2)) / self.N**2 / 2
+                for displacement in nn_displacements_decrease:
+                    k1 = self.indexToKGrid[kIdx1][0] * self.Gs[1] / self.N + self.indexToKGrid[kIdx1][1] * self.Gs[2] / self.N
+                    k2 = self.indexToKGrid[kIdx2][0] * self.Gs[1] / self.N + self.indexToKGrid[kIdx2][1] * self.Gs[2] / self.N
+                    j1 = (j2 - 1) % 3
+                    h_hf_hartree[kIdx2, self.dim*j2+1:self.dim*(j2+1):2, self.dim*j2+1:self.dim*(j2+1):2] += np.diag([np.trace(Ck[kIdx1, self.dim*j1:self.dim*(j1+1):2, self.dim*j1:self.dim*(j1+1):2])] * (self.dim // 2)) / self.N**2 / 2
+                    h_hf_hartree[kIdx2, self.dim*j2:self.dim*(j2+1):2, self.dim*j2:self.dim*(j2+1):2] += np.diag([np.trace(Ck[kIdx1, self.dim*j1+1:self.dim*(j1+1):2, self.dim*j1+1:self.dim*(j1+1):2])] * (self.dim // 2)) / self.N**2 / 2
+
+        h_hf_fock = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=complex)
+        for kIdx1, kIdx2 in product(*([list(self.indexToKGrid.keys())]*2)):
+            for j2 in range(3):
+                for displacement in nn_displacements_increase:
+                    k1 = self.indexToKGrid[kIdx1][0] * self.Gs[1] / self.N + self.indexToKGrid[kIdx1][1] * self.Gs[2] / self.N
+                    k2 = self.indexToKGrid[kIdx2][0] * self.Gs[1] / self.N + self.indexToKGrid[kIdx2][1] * self.Gs[2] / self.N
+                    phase = np.exp(-1j * IP(k1 - k2, displacement))
+                    j1 = (j2 + 1) % 3
+                    h_hf_fock[kIdx2,  self.dim*j2+1:self.dim*(j2+1):2, self.dim*j1:self.dim*(j1+1):2] += phase * Ck[kIdx1, self.dim*j1:self.dim*(j1+1):2, self.dim*j2+1:self.dim*(j2+1):2].T / self.N**2 / 2
+                    h_hf_fock[kIdx2,  self.dim*j2:self.dim*(j2+1):2, self.dim*j1+1:self.dim*(j1+1):2] += phase * Ck[kIdx1, self.dim*j1+1:self.dim*(j1+1):2, self.dim*j2:self.dim*(j2+1):2].T / self.N**2 / 2
+                for displacement in nn_displacements_decrease:
+                    k1 = self.indexToKGrid[kIdx1][0] * self.Gs[1] / self.N + self.indexToKGrid[kIdx1][1] * self.Gs[2] / self.N
+                    k2 = self.indexToKGrid[kIdx2][0] * self.Gs[1] / self.N + self.indexToKGrid[kIdx2][1] * self.Gs[2] / self.N
+                    phase = np.exp(-1j * IP(k1 - k2, displacement))
+                    j1 = (j2 - 1) % 3
+                    h_hf_fock[kIdx2,  self.dim*j2+1:self.dim*(j2+1):2, self.dim*j1:self.dim*(j1+1):2] += phase * Ck[kIdx1, self.dim*j1:self.dim*(j1+1):2, self.dim*j2+1:self.dim*(j2+1):2].T / self.N**2 / 2
+                    h_hf_fock[kIdx2,  self.dim*j2:self.dim*(j2+1):2, self.dim*j1+1:self.dim*(j1+1):2] += phase * Ck[kIdx1, self.dim*j1+1:self.dim*(j1+1):2, self.dim*j2:self.dim*(j2+1):2].T / self.N**2 / 2
+                    
+        h_hf = self.Vn * (h_hf_hartree - h_hf_fock)
+
+        assert np.allclose(h_hf, h_hf.swapaxes(-1, -2).conj())
+
+        e_hf = np.sum(h_hf * Ck) / (2 * self.N**2)
+        e_hf = assert_real(e_hf)
+        return h_hf, e_hf / self.nuSuper
+
+    def nearest_neighbor_hubbard_up_down(self, Ck: np.ndarray) -> np.ndarray:
+        # Vectorized equivalent of nearest_neighbor_hubbard_up_down0.
+        if np.isclose(self.Vn, 0.0):
+            h_hf = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=np.complex128)
+            return h_hf, 0.0
+
+        k_vectors = np.zeros((self.N**2, 2), dtype=float)
+        for idx, (n1, n2) in self.indexToKGrid.items():
+            k_vectors[idx] = n1 * self.Gs[1] / self.N + n2 * self.Gs[2] / self.N
+
+        nn_displacements_increase = np.array(
+            [
+                self.A[1],
+                self.A[2],
+                -(self.A[1] + self.A[2]),
+            ]
+        )
+        nn_displacements_decrease = np.array(
+            [
+                -self.A[1],
+                -self.A[2],
+                self.A[1] + self.A[2],
+            ]
+        )
+
+        # phase_sum[k2, k1] = sum_d exp(-i (k1-k2)·d)
+        def build_phase_sum(displacements: np.ndarray) -> np.ndarray:
+            phase_sum = np.zeros((self.N**2, self.N**2), dtype=np.complex128)
+            for d in displacements:
+                u = np.exp(-1j * (k_vectors @ d))
+                phase_sum += np.outer(np.conjugate(u), u)
+            return phase_sum
+
+        phase_increase = build_phase_sum(nn_displacements_increase)
+        phase_decrease = build_phase_sum(nn_displacements_decrease)
+
+        h_hf_hartree = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=np.complex128)
+        h_hf_fock = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=np.complex128)
+
+        # Traces on each sublattice block for up/down sectors.
+        tr_up = np.zeros((self.numSub, self.N**2), dtype=np.complex128)
+        tr_down = np.zeros((self.numSub, self.N**2), dtype=np.complex128)
+        for j in range(self.numSub):
+            sl_up = slice(self.dim * j, self.dim * (j + 1), 2)
+            sl_down = slice(self.dim * j + 1, self.dim * (j + 1), 2)
+            tr_up[j] = np.trace(Ck[:, sl_up, sl_up], axis1=1, axis2=2)
+            tr_down[j] = np.trace(Ck[:, sl_down, sl_down], axis1=1, axis2=2)
+
+        for j2 in range(self.numSub):
+            j_inc = (j2 + 1) % self.numSub
+            j_dec = (j2 - 1) % self.numSub
+
+            sl2_up = slice(self.dim * j2, self.dim * (j2 + 1), 2)
+            sl2_down = slice(self.dim * j2 + 1, self.dim * (j2 + 1), 2)
+            sl_inc_up = slice(self.dim * j_inc, self.dim * (j_inc + 1), 2)
+            sl_inc_down = slice(self.dim * j_inc + 1, self.dim * (j_inc + 1), 2)
+            sl_dec_up = slice(self.dim * j_dec, self.dim * (j_dec + 1), 2)
+            sl_dec_down = slice(self.dim * j_dec + 1, self.dim * (j_dec + 1), 2)
+
+            # Hartree blocks: each set has 3 equivalent displacements and a 1/2 prefactor.
+            scalar_down = (3.0 / (2.0 * self.N**2)) * (np.sum(tr_up[j_inc]) + np.sum(tr_up[j_dec]))
+            scalar_up = (3.0 / (2.0 * self.N**2)) * (np.sum(tr_down[j_inc]) + np.sum(tr_down[j_dec]))
+            h_hf_hartree[:, sl2_down, sl2_down] = np.eye(self.dim // 2, dtype=np.complex128)[None, :, :] * scalar_down
+            h_hf_hartree[:, sl2_up, sl2_up] = np.eye(self.dim // 2, dtype=np.complex128)[None, :, :] * scalar_up
+
+            # Fock blocks: weighted k-space convolution with spin-flip channel.
+            block_inc_down = Ck[:, sl_inc_up, sl2_down].transpose(0, 2, 1)
+            block_inc_up = Ck[:, sl_inc_down, sl2_up].transpose(0, 2, 1)
+            block_dec_down = Ck[:, sl_dec_up, sl2_down].transpose(0, 2, 1)
+            block_dec_up = Ck[:, sl_dec_down, sl2_up].transpose(0, 2, 1)
+
+            h_hf_fock[:, sl2_down, sl_inc_up] += np.einsum("ab,bij->aij", phase_increase, block_inc_down) / (2.0 * self.N**2)
+            h_hf_fock[:, sl2_up, sl_inc_down] += np.einsum("ab,bij->aij", phase_increase, block_inc_up) / (2.0 * self.N**2)
+            h_hf_fock[:, sl2_down, sl_dec_up] += np.einsum("ab,bij->aij", phase_decrease, block_dec_down) / (2.0 * self.N**2)
+            h_hf_fock[:, sl2_up, sl_dec_down] += np.einsum("ab,bij->aij", phase_decrease, block_dec_up) / (2.0 * self.N**2)
+
+        h_hf = self.Vn * (h_hf_hartree - h_hf_fock)
+
+        assert np.allclose(h_hf, h_hf.swapaxes(-1, -2).conj())
+
+        e_hf = np.sum(h_hf * Ck) / (2 * self.N**2)
+        e_hf = assert_real(e_hf)
+        return h_hf, e_hf / self.nuSuper
 
     def hartree_fock_terms(self, Ck: np.ndarray) -> tuple[np.ndarray, float]:
         h_u0, e_u0 = self.onsite_density_density(Ck)
         h_un, e_un = self.nearest_neighbor_density_density(Ck)
         h_vud, e_vud = self.on_site_hubbard_up_down(Ck)
-        h_hf = h_u0[None, :, :] + h_vud[None, :, :] + h_un
-        e_hf = assert_real(e_u0 + e_vud + e_un)
+        h_vnud, e_vnud = self.nearest_neighbor_hubbard_up_down(Ck)
+        h_hf = h_u0[None, :, :] + h_vud[None, :, :] + h_un + h_vnud
+        e_hf = assert_real(e_u0 + e_vud + e_un + e_vnud)
         return h_hf, e_hf
 
     def diagonalize_blocks(self, h):
@@ -581,7 +725,7 @@ class HFsuper:
 
             if verbose:
                 print(
-                    f"e_mean={np.round(e_mean, 12):<20} dC_rel={dC:.3e}   {np.round(spin_components[1], 1)}/{self.Nocc}"
+                    f"e_mean={np.round(e_mean, 12):<20} dC_rel={dC:.3e}   mu={mu:.3e}   {np.round(spin_components[1], 1)}/{self.Nocc}"
                 )
 
             Ck = C_mixed
@@ -590,7 +734,7 @@ class HFsuper:
                 converged = True
                 break
 
-        return h_k, e_hf - e_ref, Ck, converged, it_
+        return h_k, e_hf - e_ref, Ck, mu, converged, it_
 
     def build_effective_hopping(self, h_k):
         effective_hopping = {}
@@ -614,18 +758,97 @@ class HFsuper:
             htb[qIdx1*self.dim:(qIdx1+1)*self.dim, qIdx2*self.dim:(qIdx2+1)*self.dim] += np.exp(-1j * IP(k, DeltaR)) * val
         assert np.allclose(htb, dagger(htb))
         return htb
+    
+    def total_chern_number_energy(
+        self,
+        effective_hopping,
+        grid_N,
+        num_filled: int | None = None,
+        return_berry_curvature: bool = False,
+    ):
+        """
+        Compute the total Chern number of filled bands for HKtbEff built from
+        `effective_hopping`, sampled on a `grid_N x grid_N` mesh.
+        """
+        if grid_N <= 1:
+            raise ValueError("grid_N must be > 1.")
+
+        if num_filled is None:
+            num_filled = int(self.nu * self.numSub)
+        if not (0 < num_filled <= self.dimSuper):
+            raise ValueError(f"num_filled must satisfy 0 < num_filled <= {self.dimSuper}.")
+
+        occupied = np.zeros((grid_N, grid_N, self.dimSuper, num_filled), dtype=np.complex128)
+        energy = np.zeros((grid_N, grid_N, self.dimSuper), dtype=np.complex128)
+        for n1, n2 in product(*([range(grid_N)] * 2)):
+            k = n1 * self.Gs[1] / grid_N + n2 * self.Gs[2] / grid_N
+            h_k = self.HKtbEff(k, effective_hopping)
+            eigvals, eigvecs = np.linalg.eigh(h_k)
+            occupied[n1, n2] = eigvecs[:, :num_filled]
+            energy[n1, n2, :] = eigvals
+
+        def link_variable(n1: int, n2: int, dn1: int, dn2: int) -> complex:
+            psi = occupied[n1, n2]
+            psi_next = occupied[(n1 + dn1) % grid_N, (n2 + dn2) % grid_N]
+            overlap = psi.conj().T @ psi_next
+            # Stable unitary projection of overlap (polar decomposition via SVD).
+            u, _, vh = np.linalg.svd(overlap, full_matrices=False)
+            det_unitary = np.linalg.det(u @ vh)
+            mag = np.abs(det_unitary)
+            if mag < 1e-14:
+                return 1.0 + 0.0j
+            return det_unitary / mag
+
+        berry_curvature = np.zeros((grid_N, grid_N), dtype=float)
+        for n1, n2 in product(*([range(grid_N)] * 2)):
+            u1 = link_variable(n1, n2, 1, 0)
+            u2 = link_variable((n1 + 1) % grid_N, n2, 0, 1)
+            u1_back = np.conjugate(link_variable(n1, (n2 + 1) % grid_N, 1, 0))
+            u2_back = np.conjugate(link_variable(n1, n2, 0, 1))
+            wilson_loop = u1 * u2 * u1_back * u2_back
+            berry_curvature[n1, n2] = np.angle(wilson_loop) / (2 * np.pi)
+
+        chern_number = float(np.sum(berry_curvature))
+        if return_berry_curvature:
+            return chern_number, berry_curvature, energy
+        return chern_number, energy
 
 
 if __name__ == "__main__":
-    U0_ = 0.3
-    Un_ = 0.15
-    Vupdown_ = 0.3
+    U0_ = 0.25
+    Un_ = 0.1
+    V_ = 0.15
+    Vn_ = 0.27
 
-    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, Vupdown=Vupdown_)
+    U0_ = 0.22
+    Un_ = 0.11
+    V_ = 0.19
+    Vn_ = 0.27
+
+    U0_ = 0.15
+    Un_ = 0.12
+    V_ = 0.08
+    Vn_ = 0.19
+
+    U0_ = 0.15
+    Un_ = 0.
+    V_ = 0.0
+    Vn_ = 0.
+
+
+    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
-    h_k, e_hf, Ck, converged, it_ = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=False)
+    h_k, e_hf, Ck, mu, converged, it_ = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=False)
     print(f'convergence: {converged} / iteration: {it_}')
     effective_hopping = model.build_effective_hopping(h_k)
+
+    chern, energy = model.total_chern_number_energy(effective_hopping, 30)
+    print(f"Total Chern number (filled bands): {chern:.8f}")
+    energy_diff = assert_real(energy[:, :, 3] - energy[:, :, 2])
+    assert np.all(energy_diff > 0)
+    print(f"Energy diff 3 and 4: {np.min(energy_diff):.8f}")
+    energy_gap = np.min(energy[:, :, 3]) - np.max(energy[:, :, 2])
+    print(f"Energy gap 3 and 4: {assert_real(energy_gap):.8f}")
 
     for idx, grid in model.indexToKGrid.items():
         k = grid[0] * model.Gs[1] / model.N + grid[1] * model.Gs[2] / model.N
@@ -653,6 +876,7 @@ if __name__ == "__main__":
     band_structure[3*N_high_symmetry, :] = eigvals - e_hf
     for bnd in range(model.dimSuper):
         plt.plot(np.arange(3*N_high_symmetry+1), band_structure[:, bnd], color='k')
+    plt.hlines(mu, 0, 3*N_high_symmetry+1, colors='b', linestyles='--', alpha=0.5, linewidth=0.7)
+    
+    print(band_structure[10, :])
     plt.show()
-
-
