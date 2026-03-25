@@ -279,6 +279,29 @@ class HFsuper:
             raise ValueError("Initial Ck violates the particle-number constraint.")
         return Ck
 
+    def onsite_density_density0(self, Ck: np.ndarray):
+        if np.isclose(self.U0, 0.0):
+            h_hf = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=np.complex128)
+            return h_hf, 0.0
+
+        h_hf_hartree = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=complex)
+        for kIdx1, kIdx2 in product(*([list(self.indexToKGrid.keys())]*2)):
+            for j in range(3):
+                h_hf_hartree[kIdx2,  self.dim*j:self.dim*(j+1), self.dim*j:self.dim*(j+1)] += np.diag([np.trace(Ck[kIdx1, self.dim*j:self.dim*(j+1), self.dim*j:self.dim*(j+1)])] * self.dim) / self.N**2
+
+        h_hf_fock = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=complex)
+        for kIdx1, kIdx2 in product(*([list(self.indexToKGrid.keys())]*2)):
+            for j in range(3):
+                h_hf_fock[kIdx2,  self.dim*j:self.dim*(j+1), self.dim*j:self.dim*(j+1)] += Ck[kIdx1, self.dim*j:self.dim*(j+1), self.dim*j:self.dim*(j+1)].T / self.N**2
+        
+        h_hf = self.U0 * (h_hf_hartree - h_hf_fock)
+
+        assert np.allclose(h_hf, h_hf.swapaxes(-1, -2).conj())
+
+        e_hf = np.sum(h_hf * Ck) / (2 * self.N**2)
+        e_hf = assert_real(e_hf)
+        return h_hf, e_hf / self.nuSuper
+
     def onsite_density_density(self, Ck):
         # Supercell generalization of HFnew.onsite_density_density:
         # rho = (1/N^2) sum_k C_k over the 12x12 supercell basis.
@@ -429,6 +452,29 @@ class HFsuper:
         e_hf = assert_real(e_hf)
         return h_hf, e_hf / self.nuSuper
 
+    def on_site_hubbard_up_down0(self, Ck):
+        if np.isclose(self.V, 0.0):
+            h_hf = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=np.complex128)
+            return h_hf, 0.0
+
+        h_hf_hartree = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=complex)
+        for kIdx1, kIdx2 in product(*([list(self.indexToKGrid.keys())]*2)):
+            for j in range(3):
+                h_hf_hartree[kIdx2, self.dim*j+1:self.dim*(j+1):2, self.dim*j+1:self.dim*(j+1):2] += np.diag([np.trace(Ck[kIdx1, self.dim*j:self.dim*(j+1):2, self.dim*j:self.dim*(j+1):2])] * (self.dim // 2)) / self.N**2 / 2
+                h_hf_hartree[kIdx2, self.dim*j:self.dim*(j+1):2, self.dim*j:self.dim*(j+1):2] += np.diag([np.trace(Ck[kIdx1, self.dim*j+1:self.dim*(j+1):2, self.dim*j+1:self.dim*(j+1):2])] * (self.dim // 2)) / self.N**2 / 2
+
+        h_hf_fock = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=complex)
+        for kIdx1, kIdx2 in product(*([list(self.indexToKGrid.keys())]*2)):
+            for j in range(3):
+                h_hf_fock[kIdx2, self.dim*j:self.dim*(j+1):2, self.dim*j+1:self.dim*(j+1):2] += Ck[kIdx1, self.dim*j+1:self.dim*(j+1):2, self.dim*j:self.dim*(j+1):2].T / self.N**2 / 2
+                h_hf_fock[kIdx2, self.dim*j+1:self.dim*(j+1):2, self.dim*j:self.dim*(j+1):2] += Ck[kIdx1, self.dim*j:self.dim*(j+1):2, self.dim*j+1:self.dim*(j+1):2].T / self.N**2 / 2
+        
+        h_hf = self.V * (h_hf_hartree - h_hf_fock)
+        assert np.allclose(h_hf, h_hf.swapaxes(-1, -2).conj())
+        e_hf = np.sum(h_hf * Ck) / (2 * self.N**2)
+        e_hf = assert_real(e_hf)
+        return h_hf, e_hf / self.nuSuper
+    
     def on_site_hubbard_up_down(self, Ck):
         # Supercell analogue of HFnew.on_site_hubbard_up_down:
         # apply the local spin-up/spin-down interaction within each sublattice block.
@@ -725,7 +771,7 @@ class HFsuper:
 
             if verbose:
                 print(
-                    f"e_mean={np.round(e_mean, 12):<20} dC_rel={dC:.3e}   mu={mu:.3e}   {np.round(spin_components[1], 1)}/{self.Nocc}"
+                    f"e_mean={np.round(e_mean/model.numSub, 12):<20} dC_rel={dC:.3e}   mu={mu:.3e}   {np.round(spin_components[1], 1)}/{self.Nocc}"
                 )
 
             Ck = C_mixed
@@ -879,9 +925,9 @@ if __name__ == "__main__":
 
 if __name__ == "__main1__":
 
-    U0_ = 0.15
-    Un_ = 0.
-    V_ = 0.
+    U0_ = 0.1
+    Un_ = 0.0
+    V_ = 0.1
     Vn_ = 0.
 
 
@@ -898,7 +944,7 @@ if __name__ == "__main1__":
     print(f'convergence: {converged} / iteration: {it_}')
     effective_hopping0 = model0.build_effective_hopping(h_k0)
 
-    N_high_symmetry = 30
+    N_high_symmetry = 120
     band_structure = np.zeros((3*N_high_symmetry+1, model.dimSuper))
     for i in range(N_high_symmetry):
         k = interpolation(model.GammaSuper, model.Ksuper, N_high_symmetry, i)
@@ -937,7 +983,8 @@ if __name__ == "__main1__":
         eigvals = np.linalg.eigh(model0.HKtbEff(k, effective_hopping0))[0]
         band_structure[3*N_high_symmetry, :] = eigvals - e_hf
         for bnd in range(model0.dim):
-            plt.plot(np.arange(3*N_high_symmetry+1), band_structure[:, bnd], color=colors[idx], linestyle='--')
+            plt.plot(np.arange(3*N_high_symmetry+1), band_structure[:, bnd], color=colors[idx], linestyle=(0, (8, 8)))
+    plt.xticks([0, N_high_symmetry, 2*N_high_symmetry, 3*N_high_symmetry], [r'$\Gamma_s$', r'$K_s$', r'$M_s$', r'$\Gamma_s$'])
 
     df_dict = {}
     for qIdx in range(3):
@@ -952,4 +999,58 @@ if __name__ == "__main1__":
     print(df)
 
     plt.show()
+
+
+if __name__ == "__main2__":
+    import time
+
+    U0_ = np.random.randn()
+    Un_ = np.random.randn()
+    V_ = np.random.randn()
+    Vn_ = np.random.randn()
+
+    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
+    Ck = np.random.randn(model.N**2, model.dimSuper, model.dimSuper) + 1j * np.random.randn(model.N**2, model.dimSuper, model.dimSuper)
+    Ck = Ck + np.transpose(np.conjugate(Ck), axes=[0, 2, 1])
+    
+    t0 = time.time()
+    h_hf, e_hf = model.onsite_density_density(Ck)
+    print(f'Calculation AI: {(time.time() - t0):.3e} seconds')
+    t0 = time.time()
+    h_hf_0, e_hf_0 = model.onsite_density_density0(Ck)
+    print(f'Calculation for loop: {(time.time() - t0):.3e} seconds')
+    assert np.allclose(h_hf, h_hf_0[0, :, :])
+    assert np.allclose(h_hf_0.std(axis=0), 0)
+    assert np.isclose(e_hf, e_hf_0)
+
+    t0 = time.time()
+    h_hf, e_hf = model.on_site_hubbard_up_down(Ck)
+    print(f'Calculation AI: {(time.time() - t0):.3e} seconds')
+    t0 = time.time()
+    h_hf_0, e_hf_0 = model.on_site_hubbard_up_down0(Ck)
+    print(f'Calculation for loop: {(time.time() - t0):.3e} seconds')
+    assert np.allclose(h_hf, h_hf_0[0, :, :])
+    assert np.allclose(h_hf_0.std(axis=0), 0)
+    assert np.isclose(e_hf, e_hf_0)
+
+    t0 = time.time()
+    h_hf, e_hf = model.nearest_neighbor_density_density(Ck)
+    print(f'Calculation AI: {(time.time() - t0):.3e} seconds')
+    t0 = time.time()
+    h_hf_0, e_hf_0 = model.nearest_neighbor_density_density0(Ck)
+    print(f'Calculation for loop: {(time.time() - t0):.3e} seconds')
+    assert np.allclose(h_hf, h_hf_0)
+    assert np.isclose(e_hf, e_hf_0)
+
+    t0 = time.time()
+    h_hf, e_hf = model.nearest_neighbor_hubbard_up_down(Ck)
+    print(f'Calculation AI: {(time.time() - t0):.3e} seconds')
+    t0 = time.time()
+    h_hf_0, e_hf_0 = model.nearest_neighbor_hubbard_up_down0(Ck)
+    print(f'Calculation for loop: {(time.time() - t0):.3e} seconds')
+    assert np.allclose(h_hf, h_hf_0)
+    assert np.isclose(e_hf, e_hf_0)
+
+
+
 
