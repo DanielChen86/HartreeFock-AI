@@ -1,10 +1,8 @@
-import argparse
 from itertools import product
 import numpy as np
 import matplotlib.pyplot as plt
 from HFnew import HF
 import datetime
-from HartreeFockTrigonalCDW import TrigonalCDWDFT2
 import pandas as pd
 
 GAMMA_TRUNCATION = [(-6, -3), (-5, -4), (-5, -3), (-5, -2), (-5, -1), 
@@ -237,7 +235,7 @@ class HFsuper:
     def build_Ck(
         self,
         Ck0=None,
-        random_seed: int | None = None,
+        random_seed = None,
         use_reference_filling: bool = False,
         deviation: float = 1e-2,
     ):
@@ -722,8 +720,8 @@ class HFsuper:
         max_iter: int = 200,
         alpha: float = 0.2,
         tol_dC: float = 1e-6,
-        random_seed: int | None = None,
-        Ck0: np.ndarray | None = None,
+        random_seed = None,
+        Ck0 = None,
         subtract_reference: bool = False,
         verbose: bool = False):
         if not (0.0 < alpha <= 1.0):
@@ -809,7 +807,7 @@ class HFsuper:
         self,
         effective_hopping,
         grid_N,
-        num_filled: int | None = None,
+        num_filled = None,
         return_berry_curvature: bool = False,
     ):
         """
@@ -871,11 +869,10 @@ if __name__ == "__main__":
     V_ = 0.19
     Vn_ = 0.27
 
-    U0_ = 0.15
-    Un_ = 0.12
-    V_ = 0.08
-    Vn_ = 0.19
-
+    U0_ = 0.265
+    Un_ = 0.105
+    V_ = 0.1
+    Vn_ = 0.1
 
 
     model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
@@ -884,6 +881,7 @@ if __name__ == "__main__":
     print(f'convergence: {converged} / iteration: {it_}')
     effective_hopping = model.build_effective_hopping(h_k)
 
+    print(f'U0={model.U0}, Un={model.Un}, V={model.V}, Vn={model.Vn}')
     chern, energy = model.total_chern_number_energy(effective_hopping, 30)
     print(f"Total Chern number (filled bands): {chern:.8f}")
     energy_diff = assert_real(energy[:, :, 3] - energy[:, :, 2])
@@ -919,6 +917,21 @@ if __name__ == "__main__":
     for bnd in range(model.dimSuper):
         plt.plot(np.arange(3*N_high_symmetry+1), band_structure[:, bnd], color='k')
     plt.hlines(mu, 0, 3*N_high_symmetry+1, colors='b', linestyles='--', alpha=0.5, linewidth=0.7)
+    plt.xticks([0, N_high_symmetry, 2*N_high_symmetry, 3*N_high_symmetry], [r'$\Gamma_s$', r'$K_s$', r'$M_s$', r'$\Gamma_s$'])
+    plt.title(f'U0={model.U0}, Un={model.Un}, V={model.V}, Vn={model.Vn}')
+
+    df_dict = {}
+    for qIdx in range(3):
+        for orbIdx in range(2):
+            CkSub = Ck.sum(axis=0)[4*qIdx:4*(qIdx+1), 4*qIdx:4*(qIdx+1)][2*orbIdx:2*(orbIdx+1), 2*orbIdx:2*(orbIdx+1)]
+            df_dict[qIdx, orbIdx] = {}
+            df_dict[qIdx, orbIdx]['X'] = assert_real(CkSub[0, 1] + CkSub[1, 0])
+            df_dict[qIdx, orbIdx]['Y'] = assert_real(-1j * (CkSub[0, 1] - CkSub[1, 0]))
+            df_dict[qIdx, orbIdx]['Z'] = assert_real(CkSub[0, 0] - CkSub[1, 1])
+            df_dict[qIdx, orbIdx]['N'] = assert_real((CkSub[0, 0] + CkSub[1, 1]) / model.N**2)
+    df = pd.DataFrame(df_dict).T
+    print(df)
+    print(f'sum of N = {np.round(df['N'].sum(), 3)}')
     
     plt.show()
 

@@ -1,10 +1,8 @@
 import numpy as np
 from itertools import product
 from copy import deepcopy
-from HartreeFockTrigonal import TrigonalDFT2
 from dataclasses import dataclass
 from pathlib import Path
-from HartreeFock import HartreeFock
 import datetime
 import matplotlib.pyplot as plt
 
