@@ -246,7 +246,7 @@ class HFsuper:
         Ck = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=np.complex128)
 
         if use_reference_filling:
-            reference_diag = np.diag(np.sum(self.reference_Ck(), axis=0)).real / self.Nocc
+            reference_diag = np.diag(np.sum(self.reference_Ck(), axis=0)).real / (self.N**2)
         else:
             reference_diag = np.full(self.dimSuper, self.nuSuper / self.dimSuper, dtype=float)
 
@@ -662,6 +662,15 @@ class HFsuper:
         e_hf = assert_real(e_u0 + e_vud + e_un + e_vnud)
         return h_hf, e_hf
 
+    def reference_Ck(self) -> np.ndarray:
+        """
+        Supercell reference density C^(0): diagonalize HtbSuper and fill using
+        the same occupancy rule as the self-consistent iteration.
+        """
+        eigvals, eigvecs = self.diagonalize_blocks(self.HtbSuper)
+        occ, _ = self.occupancies_from_energies(eigvals)
+        return self.density_from_eigensystem(eigvecs, occ)
+
     def diagonalize_blocks(self, h):
         eigvals = np.zeros(shape=(h.shape[0], self.dimSuper))
         eigvecs = np.zeros(shape=(h.shape[0], self.dimSuper, self.dimSuper), dtype=complex)
@@ -1069,3 +1078,77 @@ if __name__ == "__main2__":
     print(f'Calculation for loop: {(time.time() - t0):.3e} seconds')
     assert np.allclose(h_hf, h_hf_0)
     assert np.isclose(e_hf, e_hf_0)
+
+
+if __name__ == "__main3__":
+    # Check whether the band structure agrees with the free theory in the weak-interaction regime when subtract_reference = True
+
+    U0_ = 0.01
+    Un_ = 0.01
+    V_ = 0.0
+    Vn_ = 0.0
+
+    model = HFsuper(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', nu=2, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
+    now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
+    h_k, e_hf, Ck, mu, converged, it_ = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=True)
+    print(f'convergence: {converged} / iteration: {it_}')
+    effective_hopping = model.build_effective_hopping(h_k)
+
+    N_high_symmetry = 100
+    band_structure = np.zeros((3*N_high_symmetry+1, model.dimSuper))
+    for i in range(N_high_symmetry):
+        k = interpolation(model.GammaSuper, model.Ksuper, N_high_symmetry, i)
+        eigvals = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
+        band_structure[i, :] = eigvals - e_hf
+
+        k = interpolation(model.Ksuper, model.Msuper, N_high_symmetry, i)
+        eigvals = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
+        band_structure[N_high_symmetry+i, :] = eigvals - e_hf
+
+        k = interpolation(model.Msuper, model.GammaSuper, N_high_symmetry, i)
+        eigvals = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
+        band_structure[2*N_high_symmetry+i, :] = eigvals - e_hf
+    k = model.GammaSuper
+    eigvals = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
+    band_structure[3*N_high_symmetry, :] = eigvals - e_hf
+    for bnd in range(model.dimSuper):
+        plt.plot(np.arange(3*N_high_symmetry+1), band_structure[:, bnd], color='k')
+    
+
+    U0_ = 0.0
+    Un_ = 0.0
+    V_ = 0.0
+    Vn_ = 0.0
+
+    model0 = HFsuper(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', nu=2, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
+    now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
+    h_k, e_hf, Ck, mu, converged, it_ = model0.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=True)
+    print(f'convergence: {converged} / iteration: {it_}')
+    effective_hopping = model0.build_effective_hopping(h_k)
+
+    N_high_symmetry = 100
+    band_structure = np.zeros((3*N_high_symmetry+1, model0.dimSuper))
+    for i in range(N_high_symmetry):
+        k = interpolation(model0.GammaSuper, model0.Ksuper, N_high_symmetry, i)
+        eigvals = np.linalg.eigh(model0.HKtbEff(k, effective_hopping))[0]
+        band_structure[i, :] = eigvals - e_hf
+
+        k = interpolation(model0.Ksuper, model0.Msuper, N_high_symmetry, i)
+        eigvals = np.linalg.eigh(model0.HKtbEff(k, effective_hopping))[0]
+        band_structure[N_high_symmetry+i, :] = eigvals - e_hf
+
+        k = interpolation(model0.Msuper, model0.GammaSuper, N_high_symmetry, i)
+        eigvals = np.linalg.eigh(model0.HKtbEff(k, effective_hopping))[0]
+        band_structure[2*N_high_symmetry+i, :] = eigvals - e_hf
+    k = model0.GammaSuper
+    eigvals = np.linalg.eigh(model0.HKtbEff(k, effective_hopping))[0]
+    band_structure[3*N_high_symmetry, :] = eigvals - e_hf
+    for bnd in range(model0.dimSuper):
+        plt.plot(np.arange(3*N_high_symmetry+1), band_structure[:, bnd], color='r', linestyle=':')
+
+
+    plt.xticks([0, N_high_symmetry, 2*N_high_symmetry, 3*N_high_symmetry], [r'$\Gamma_s$', r'$K_s$', r'$M_s$', r'$\Gamma_s$'])
+
+    
+    plt.show()
+
