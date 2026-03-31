@@ -48,7 +48,6 @@ class HF:
         self.kT = kT
 
         self.Nocc = self.nu * self.N**2
-        self.dim = 4
 
         self.read_path()
         self.define_convention()
@@ -89,6 +88,7 @@ class HF:
         self.H1 = self.load_csv_hermitian(f'{self.path}/H1.csv', delimiter=",", dtype=complex)
         self.H2 = self.load_csv_hermitian(f'{self.path}/H2.csv', delimiter=",", dtype=complex)
         self.H3 = self.load_csv_hermitian(f'{self.path}/H3.csv', delimiter=",", dtype=complex)
+        self.dim = self.C3z.shape[0]
         assert np.all(np.array(self.C3z.shape) == self.dim)
         assert np.all(np.array(self.Inverse.shape) == self.dim)
         assert np.all(np.array(self.H0.shape) == self.dim)
@@ -372,7 +372,11 @@ class HF:
 
             Ck_sum = np.sum(Ck, axis=0)
             n_sum = np.diag(Ck_sum)
-            spin_components = assert_real(np.sort([n_sum[0]+n_sum[2], n_sum[1]+n_sum[3]]))
+            # Generic alternating-spin convention:
+            # [alpha1 up, alpha1 down, alpha2 up, alpha2 down, ...].
+            n_up_total = np.sum(n_sum[0::2])
+            n_down_total = np.sum(n_sum[1::2])
+            spin_components = assert_real(np.sort([n_up_total, n_down_total]))
 
 
             if verbose:
@@ -463,9 +467,9 @@ class HF:
 
 
 if __name__ == '__main__':
-    U0_ = 0.4
-    Un_ = 0.2
-    Vupdown_ = 0.5
+    U0_ = 0.15
+    Un_ = 0.1
+    Vupdown_ = 0.4
     metal_ = True
     nu_ = 1
     C0_modify_ = False
