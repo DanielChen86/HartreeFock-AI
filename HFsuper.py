@@ -872,15 +872,6 @@ class HFsuper:
 
 
 if __name__ == "__main__":
-    U0_ = 0.25
-    Un_ = 0.1
-    V_ = 0.15
-    Vn_ = 0.27
-
-    U0_ = 0.22
-    Un_ = 0.11
-    V_ = 0.19
-    Vn_ = 0.27
 
     U0_ = 0.265
     Un_ = 0.105
@@ -889,19 +880,21 @@ if __name__ == "__main__":
 
 
     model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
+    model = HFsuper(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', nu=2, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
+    model = HFsuper(path='TightBindingModel/Re2MnO8/withSOCwannier-dim3', nu=3, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
     h_k, e_hf, Ck, mu, converged, it_ = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=False)
     print(f'convergence: {converged} / iteration: {it_}')
     effective_hopping = model.build_effective_hopping(h_k)
 
     print(f'U0={model.U0}, Un={model.Un}, V={model.V}, Vn={model.Vn}')
-    chern, energy = model.total_chern_number_energy(effective_hopping, 30)
+    chern, energy = model.total_chern_number_energy(effective_hopping, 40)
     print(f"Total Chern number (filled bands): {chern:.8f}")
-    energy_diff = assert_real(energy[:, :, 3] - energy[:, :, 2])
+    energy_diff = assert_real(energy[:, :, model.nuSuper] - energy[:, :, model.nuSuper-1])
     assert np.all(energy_diff > 0)
-    print(f"Energy diff 3 and 4: {np.min(energy_diff):.8f}")
-    energy_gap = np.min(energy[:, :, 3]) - np.max(energy[:, :, 2])
-    print(f"Energy gap 3 and 4: {assert_real(energy_gap):.8f}")
+    print(f"Energy diff {model.nuSuper} and {model.nuSuper+1}: {np.min(energy_diff):.8f}")
+    energy_gap = np.min(energy[:, :, model.nuSuper]) - np.max(energy[:, :, model.nuSuper-1])
+    print(f"Energy gap {model.nuSuper} and {model.nuSuper+1}: {assert_real(energy_gap):.8f}")
 
     for idx, grid in model.indexToKGrid.items():
         k = grid[0] * model.Gs[1] / model.N + grid[1] * model.Gs[2] / model.N
