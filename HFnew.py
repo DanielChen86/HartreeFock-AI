@@ -413,7 +413,7 @@ class HF:
         assert np.allclose(htb, dagger(htb))
         return htb
 
-    def total_chern_number(
+    def total_chern_number_energy(
         self,
         effective_hopping,
         grid_N,
@@ -433,11 +433,13 @@ class HF:
             raise ValueError(f"num_filled must satisfy 0 < num_filled <= {self.dim}.")
 
         occupied = np.zeros((grid_N, grid_N, self.dim, num_filled), dtype=np.complex128)
+        energy = np.zeros((grid_N, grid_N, self.dim), dtype=np.complex128)
         for n1, n2 in product(*([range(grid_N)] * 2)):
             k = n1 * self.G[1] / grid_N + n2 * self.G[2] / grid_N
             h_k = self.HKtbEff(k, effective_hopping)
-            _, eigvecs = np.linalg.eigh(h_k)
+            eigvals, eigvecs = np.linalg.eigh(h_k)
             occupied[n1, n2] = eigvecs[:, :num_filled]
+            energy[n1, n2, :] = eigvals
 
         def link_variable(n1: int, n2: int, dn1: int, dn2: int) -> complex:
             psi = occupied[n1, n2]
@@ -462,8 +464,9 @@ class HF:
 
         chern_number = float(np.sum(berry_curvature))
         if return_berry_curvature:
-            return chern_number, berry_curvature
-        return chern_number
+            return chern_number, berry_curvature, energy
+        return chern_number, energy
+
 
 
 if __name__ == '__main__':
@@ -490,7 +493,14 @@ if __name__ == '__main__':
         assert np.allclose(eigvals1, eigvals2)
     print(np.round(np.trace(np.sum(Ck, axis=0)), 2))
 
-    print(model.total_chern_number(effective_hopping, 40, model.nu))
+    print(f'U0={model.U0}, Un={model.Un}, V={model.V}')
+    chern, energy = model.total_chern_number_energy(effective_hopping, 100)
+    print(f"Total Chern number (filled bands): {chern:.8f}")
+    energy_diff = assert_real(energy[:, :, model.nu] - energy[:, :, model.nu-1])
+    assert np.all(energy_diff > 0)
+    print(f"Energy diff {model.nu} and {model.nu+1}: {np.min(energy_diff):.8f}")
+    energy_gap = np.min(energy[:, :, model.nu]) - np.max(energy[:, :, model.nu-1])
+    print(f"Energy gap {model.nu} and {model.nu+1}: {assert_real(energy_gap):.8f}")
 
     N_high_symmetry = 100
     band_structure = np.zeros((3*N_high_symmetry+1, model.dim))
