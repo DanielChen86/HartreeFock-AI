@@ -37,12 +37,12 @@ pi = np.pi
 
 
 class HF:
-    def __init__(self, path, nu, N, U0=0, Un=0, Vupdown=0, metal=True, kT=0.005):
+    def __init__(self, path, nu, N, U0=0, Un=0, V=0, metal=True, kT=0.005):
         self.path = path
         self.nu = nu
         self.U0 = U0
         self.Un = Un
-        self.Vupdown = Vupdown
+        self.V = V
         self.N = N
         self.metal = metal
         self.kT = kT
@@ -288,12 +288,12 @@ class HF:
         n_down = float(np.trace(rho[np.ix_(down_idx, down_idx)]).real)
 
         h_hf = np.zeros((self.dim, self.dim), dtype=np.complex128)
-        h_hf[np.ix_(up_idx, up_idx)] += 0.5 * self.Vupdown * n_down * np.eye(len(up_idx))
-        h_hf[np.ix_(down_idx, down_idx)] += 0.5 * self.Vupdown * n_up * np.eye(len(down_idx))
+        h_hf[np.ix_(up_idx, up_idx)] += 0.5 * self.V * n_down * np.eye(len(up_idx))
+        h_hf[np.ix_(down_idx, down_idx)] += 0.5 * self.V * n_up * np.eye(len(down_idx))
 
         # Fock exchange only mixes opposite-spin sectors for this interaction.
-        h_hf[np.ix_(up_idx, down_idx)] -= 0.5 * self.Vupdown * rho[np.ix_(down_idx, up_idx)].T
-        h_hf[np.ix_(down_idx, up_idx)] -= 0.5 * self.Vupdown * rho[np.ix_(up_idx, down_idx)].T
+        h_hf[np.ix_(up_idx, down_idx)] -= 0.5 * self.V * rho[np.ix_(down_idx, up_idx)].T
+        h_hf[np.ix_(down_idx, up_idx)] -= 0.5 * self.V * rho[np.ix_(up_idx, down_idx)].T
 
         h_hf = 0.5 * (h_hf + h_hf.conj().T)
         return h_hf, np.sum(h_hf * rho) / 2 / self.nu
@@ -472,13 +472,13 @@ class HF:
 if __name__ == '__main__':
     U0_ = 0.15
     Un_ = 0.1
-    Vupdown_ = 0.4
+    V_ = 0.4
     metal_ = True
-    nu_ = 1
-    C0_modify_ = False
+    nu_ = 2
+    C0_modify_ = True
 
-    model = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', 
-               nu=nu_, U0=U0_, Un=Un_, Vupdown=Vupdown_, N=12, metal=metal_)
+    model = HF(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', 
+               nu=nu_, U0=U0_, Un=Un_, V=V_, N=18, metal=metal_)
     reference_Ck = model.reference_Ck()
 
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
