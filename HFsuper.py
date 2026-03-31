@@ -54,13 +54,12 @@ class HFsuper:
         self.metal = metal
         self.kT = kT
 
-        self.dim = 4
         self.numSub = 3
+
+        self.read_path()
         self.dimSuper = self.numSub * self.dim
         self.nuSuper = self.numSub * self.nu
         self.Nocc = self.nuSuper * self.N**2
-
-        self.read_path()
         self.define_convention()
         self.build_hopping()
         self.build_Htb()
@@ -68,16 +67,17 @@ class HFsuper:
 
     @staticmethod
     def load_csv_hermitian(path, delimiter, dtype):
-        m = np.loadtxt(path, delimiter=delimiter, dtype=dtype)
+        m = np.atleast_2d(np.loadtxt(path, delimiter=delimiter, dtype=dtype))
         return (m + dagger(m)) / 2
 
     def read_path(self):
-        self.C3z = np.loadtxt(f"{self.path}/C3z.csv", delimiter=",", dtype=complex)
-        self.Inverse = np.loadtxt(f"{self.path}/Inverse.csv", delimiter=",", dtype=complex)
+        self.C3z = np.atleast_2d(np.loadtxt(f"{self.path}/C3z.csv", delimiter=",", dtype=complex))
+        self.Inverse = np.atleast_2d(np.loadtxt(f"{self.path}/Inverse.csv", delimiter=",", dtype=complex))
         self.H0 = self.load_csv_hermitian(f"{self.path}/H0.csv", delimiter=",", dtype=complex)
         self.H1 = self.load_csv_hermitian(f"{self.path}/H1.csv", delimiter=",", dtype=complex)
         self.H2 = self.load_csv_hermitian(f"{self.path}/H2.csv", delimiter=",", dtype=complex)
         self.H3 = self.load_csv_hermitian(f"{self.path}/H3.csv", delimiter=",", dtype=complex)
+        self.dim = self.C3z.shape[0]
         assert np.all(np.array(self.C3z.shape) == self.dim)
         assert np.all(np.array(self.Inverse.shape) == self.dim)
         assert np.all(np.array(self.H0.shape) == self.dim)
@@ -451,6 +451,7 @@ class HFsuper:
         return h_hf, e_hf / self.nuSuper
 
     def on_site_hubbard_up_down0(self, Ck):
+        assert self.dim == 4, "on_site_hubbard_up_down0 is a checker-only routine for local dim=4 (dimSuper=12)."
         if np.isclose(self.V, 0.0):
             h_hf = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=np.complex128)
             return h_hf, 0.0
@@ -482,8 +483,8 @@ class HFsuper:
         if np.isclose(g, 0.0):
             return h_hf, 0.0
 
-        up_local = np.array([0, 2], dtype=int)
-        down_local = np.array([1, 3], dtype=int)
+        up_local = np.arange(0, self.dim, 2, dtype=int)
+        down_local = np.arange(1, self.dim, 2, dtype=int)
 
         for j in range(self.numSub):
             sl = slice(j * self.dim, (j + 1) * self.dim)
@@ -506,6 +507,7 @@ class HFsuper:
         return h_hf, assert_real(e_hf)
     
     def nearest_neighbor_hubbard_up_down0(self, Ck: np.ndarray) -> np.ndarray:
+        assert self.dim == 4, "nearest_neighbor_hubbard_up_down0 is a checker-only routine for local dim=4 (dimSuper=12)."
         if np.isclose(self.Vn, 0.0):
             h_hf = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=np.complex128)
             return h_hf, 0.0
@@ -601,6 +603,10 @@ class HFsuper:
 
         h_hf_hartree = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=np.complex128)
         h_hf_fock = np.zeros((self.N**2, self.dimSuper, self.dimSuper), dtype=np.complex128)
+        n_up = len(np.arange(0, self.dim, 2))
+        n_down = len(np.arange(1, self.dim, 2))
+        eye_up = np.eye(n_up, dtype=np.complex128)
+        eye_down = np.eye(n_down, dtype=np.complex128)
 
         # Traces on each sublattice block for up/down sectors.
         tr_up = np.zeros((self.numSub, self.N**2), dtype=np.complex128)
@@ -625,8 +631,8 @@ class HFsuper:
             # Hartree blocks: each set has 3 equivalent displacements and a 1/2 prefactor.
             scalar_down = (3.0 / (2.0 * self.N**2)) * (np.sum(tr_up[j_inc]) + np.sum(tr_up[j_dec]))
             scalar_up = (3.0 / (2.0 * self.N**2)) * (np.sum(tr_down[j_inc]) + np.sum(tr_down[j_dec]))
-            h_hf_hartree[:, sl2_down, sl2_down] = np.eye(self.dim // 2, dtype=np.complex128)[None, :, :] * scalar_down
-            h_hf_hartree[:, sl2_up, sl2_up] = np.eye(self.dim // 2, dtype=np.complex128)[None, :, :] * scalar_up
+            h_hf_hartree[:, sl2_down, sl2_down] = eye_down[None, :, :] * scalar_down
+            h_hf_hartree[:, sl2_up, sl2_up] = eye_up[None, :, :] * scalar_up
 
             # Fock blocks: weighted k-space convolution with spin-flip channel.
             block_inc_down = Ck[:, sl_inc_up, sl2_down].transpose(0, 2, 1)
@@ -764,12 +770,19 @@ class HFsuper:
 
             Ck_sum = np.sum(Ck, axis=0)
             n_sum = np.diag(Ck_sum)
-            spin_components = assert_real(np.sort([n_sum[0]+n_sum[2], n_sum[1]+n_sum[3]]))
+            n_up_total = 0.0 + 0.0j
+            n_down_total = 0.0 + 0.0j
+            for j in range(self.numSub):
+                sl_up = slice(self.dim * j, self.dim * (j + 1), 2)
+                sl_down = slice(self.dim * j + 1, self.dim * (j + 1), 2)
+                n_up_total += np.sum(n_sum[sl_up])
+                n_down_total += np.sum(n_sum[sl_down])
+            spin_components = assert_real(np.sort([n_up_total, n_down_total]))
 
 
             if verbose:
                 print(
-                    f"e_mean={np.round(e_mean/model.numSub, 12):<20} dC_rel={dC:.3e}   mu={mu:.3e}   {np.round(spin_components[1], 1)}/{self.Nocc}"
+                    f"e_mean={np.round(e_mean/self.numSub, 12):<20} dC_rel={dC:.3e}   mu={mu:.3e}   {np.round(spin_components[1], 1)}/{self.Nocc}"
                 )
 
             Ck = C_mixed
@@ -1063,7 +1076,3 @@ if __name__ == "__main2__":
     print(f'Calculation for loop: {(time.time() - t0):.3e} seconds')
     assert np.allclose(h_hf, h_hf_0)
     assert np.isclose(e_hf, e_hf_0)
-
-
-
-
