@@ -190,7 +190,7 @@ class HF:
         Ck = np.zeros((self.N**2, self.dim, self.dim), dtype=np.complex128)
 
         if use_reference_filling:
-            reference_diag = np.diag(np.sum(self.reference_Ck(), axis=0)).real / self.Nocc
+            reference_diag = np.diag(np.sum(self.reference_Ck(), axis=0)).real / (self.N**2)
         else:
             reference_diag = np.full(self.dim, self.nu / self.dim, dtype=float)
 
