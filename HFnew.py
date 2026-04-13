@@ -179,7 +179,7 @@ class HF:
     def build_Ck(
         self,
         Ck0=None,
-        random_seed: int | None = None,
+        random_seed = None,
         use_reference_filling: bool = False,
         deviation: float = 1e-2,
     ):
@@ -328,8 +328,8 @@ class HF:
         max_iter: int = 200,
         alpha: float = 0.2,
         tol_dC: float = 1e-6,
-        random_seed: int | None = None,
-        Ck0: np.ndarray | None = None,
+        random_seed = None,
+        Ck0 = None,
         subtract_reference: bool = False,
         verbose: bool = False):
         if not (0.0 < alpha <= 1.0):
@@ -417,7 +417,7 @@ class HF:
         self,
         effective_hopping,
         grid_N,
-        num_filled: int | None = None,
+        num_filled = None,
         return_berry_curvature: bool = False,
     ):
         """
@@ -470,14 +470,14 @@ class HF:
 
 
 if __name__ == '__main__':
-    U0_ = 0.15
-    Un_ = 0.1
-    V_ = 0.4
+    U0_ = 0.0
+    Un_ = 0.0
+    V_ = 0.0
     metal_ = True
-    nu_ = 2
-    C0_modify_ = True
+    nu_ = 1
+    C0_modify_ = False
 
-    model = HF(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', 
+    model = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', 
                nu=nu_, U0=U0_, Un=Un_, V=V_, N=18, metal=metal_)
     reference_Ck = model.reference_Ck()
 
