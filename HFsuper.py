@@ -114,7 +114,7 @@ class HFsuper:
         self.q[2] = (self.As[1] - self.As[2]) / 3
 
         self.GammaSuper = 0 * self.Gs[1]
-        self.Ksuper = (1/3) * self.Gs[1] + (1/3) * self.Gs[2]
+        self.Ksuper = (1/3) * self.Gs[1] + (2/3) * self.Gs[2]
         self.Msuper = (1/2) * self.Gs[2]
 
         for i1, i2 in product(*([[1, 2]] * 2)):
