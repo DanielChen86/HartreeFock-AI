@@ -882,17 +882,19 @@ class HFsuper:
 
 if __name__ == "__main__":
 
-    U0_ = 0.265
-    Un_ = 0.105
-    V_ = 0.1
-    Vn_ = 0.1
+    U0_ = 0.0
+    Un_ = 0.0
+    V_ = 0.0
+    Vn_ = 0.0
+
+    C0_modify_ = False
 
 
     model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
-    model = HFsuper(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', nu=2, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
-    model = HFsuper(path='TightBindingModel/Re2MnO8/withSOCwannier-dim3', nu=3, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
+    # model = HFsuper(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', nu=2, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
+    # model = HFsuper(path='TightBindingModel/Re2MnO8/withSOCwannier-dim3', nu=3, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
-    h_k, e_hf, Ck, mu, converged, it_ = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=False)
+    h_k, e_hf, Ck, mu, converged, it_ = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=C0_modify_)
     print(f'convergence: {converged} / iteration: {it_}')
     effective_hopping = model.build_effective_hopping(h_k)
 
@@ -946,21 +948,21 @@ if __name__ == "__main__":
             df_dict[qIdx, orbIdx]['N'] = assert_real((CkSub[0, 0] + CkSub[1, 1]) / model.N**2)
     df = pd.DataFrame(df_dict).T
     print(df)
-    print(f'sum of N = {np.round(df['N'].sum(), 3)}')
+    print(f'sum of N = {np.round(df["N"].sum(), 3)}')
     
     plt.show()
 
 
 if __name__ == "__main1__":
 
-    U0_ = 0.1
+    U0_ = 0.05
     Un_ = 0.0
-    V_ = 0.1
+    V_ = 0.05
     Vn_ = 0.
 
 
     model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
-    model0 = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, Vupdown=V_)
+    model0 = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_)
 
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
 
@@ -1088,7 +1090,7 @@ if __name__ == "__main3__":
     V_ = 0.0
     Vn_ = 0.0
 
-    model = HFsuper(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', nu=2, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
+    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
     h_k, e_hf, Ck, mu, converged, it_ = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=True)
     print(f'convergence: {converged} / iteration: {it_}')
@@ -1120,7 +1122,7 @@ if __name__ == "__main3__":
     V_ = 0.0
     Vn_ = 0.0
 
-    model0 = HFsuper(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', nu=2, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
+    model0 = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
     h_k, e_hf, Ck, mu, converged, it_ = model0.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=True)
     print(f'convergence: {converged} / iteration: {it_}')
