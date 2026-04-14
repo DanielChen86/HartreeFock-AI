@@ -390,7 +390,7 @@ class HF:
                 converged = True
                 break
 
-        return h_k, e_hf - e_ref, Ck, converged, it_
+        return h_k, e_hf - e_ref, e_mean, Ck, converged, it_
 
     def build_effective_hopping(self, h_k):
         effective_hopping = {}
@@ -482,7 +482,7 @@ if __name__ == '__main__':
     reference_Ck = model.reference_Ck()
 
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
-    h_k, e_hf, Ck, converged, it_ = model.solve(max_iter=5000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=C0_modify_)
+    h_k, e_hf, e_mean, Ck, converged, it_ = model.solve(max_iter=5000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=C0_modify_)
     print(f'convergence: {converged} / iteration: {it_}')
 
     effective_hopping = model.build_effective_hopping(h_k)
