@@ -956,9 +956,9 @@ if __name__ == "__main__":
 if __name__ == "__main1__":
 
     U0_ = 0.05
-    Un_ = 0.0
+    Un_ = 0.01
     V_ = 0.05
-    Vn_ = 0.
+    Vn_ = 0.0
 
 
     model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
