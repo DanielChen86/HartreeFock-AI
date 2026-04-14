@@ -494,6 +494,7 @@ if __name__ == '__main__':
     print(np.round(np.trace(np.sum(Ck, axis=0)), 2))
 
     print(f'U0={model.U0}, Un={model.Un}, V={model.V}')
+    print(f'e_mean={e_mean:.8f}')
     chern, energy = model.total_chern_number_energy(effective_hopping, 100)
     print(f"Total Chern number (filled bands): {chern:.8f}")
     energy_diff = assert_real(energy[:, :, model.nu] - energy[:, :, model.nu-1])

@@ -1,7 +1,7 @@
 from itertools import product
 import numpy as np
 import matplotlib.pyplot as plt
-from HFnew import HF
+from HFsingle import HF
 import datetime
 import pandas as pd
 
@@ -899,6 +899,7 @@ if __name__ == "__main__":
     effective_hopping = model.build_effective_hopping(h_k)
 
     print(f'U0={model.U0}, Un={model.Un}, V={model.V}, Vn={model.Vn}')
+    print(f'e_mean={e_mean:.8f}')
     chern, energy = model.total_chern_number_energy(effective_hopping, 40)
     print(f"Total Chern number (filled bands): {chern:.8f}")
     energy_diff = assert_real(energy[:, :, model.nuSuper] - energy[:, :, model.nuSuper-1])
