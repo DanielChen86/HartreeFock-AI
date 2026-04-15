@@ -892,7 +892,7 @@ if __name__ == "__main__":
 
     model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
     # model = HFsuper(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', nu=2, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
-    # model = HFsuper(path='TightBindingModel/Re2MnO8/withSOCwannier-dim3', nu=3, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
+    # model = HFsuper(path='TightBindingModel/Re2MnO8/withSOCwannier-dim3', nu=5, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
     h_k, e_hf, e_mean, Ck, mu, converged, it_ = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=C0_modify_)
     print(f'convergence: {converged} / iteration: {it_}')
