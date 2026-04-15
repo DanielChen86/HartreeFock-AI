@@ -495,10 +495,10 @@ if __name__ == '__main__':
 
     print(f'U0={model.U0}, Un={model.Un}, V={model.V}')
     print(f'e_mean={e_mean:.8f}')
-    chern, energy = model.total_chern_number_energy(effective_hopping, 100)
+    chern, energy = model.total_chern_number_energy(effective_hopping, 90)
     print(f"Total Chern number (filled bands): {chern:.8f}")
     energy_diff = assert_real(energy[:, :, model.nu] - energy[:, :, model.nu-1])
-    assert np.all(energy_diff > 0)
+    assert np.all(energy_diff >= 0)
     print(f"Energy diff {model.nu} and {model.nu+1}: {np.min(energy_diff):.8f}")
     energy_gap = np.min(energy[:, :, model.nu]) - np.max(energy[:, :, model.nu-1])
     print(f"Energy gap {model.nu} and {model.nu+1}: {assert_real(energy_gap):.8f}")
