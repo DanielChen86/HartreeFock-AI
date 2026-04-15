@@ -57,6 +57,8 @@ class HFsuper:
         self.numSub = 3
 
         self.read_path()
+        assert self.dim % 2 == 0
+        self.numOrb = self.dim // 2
         self.dimSuper = self.numSub * self.dim
         self.nuSuper = self.numSub * self.nu
         self.Nocc = self.nuSuper * self.N**2
@@ -800,7 +802,6 @@ class HFsuper:
                 converged = True
                 break
 
-        # return h_k, e_hf - e_ref, e_mean/self.numSub, Ck, mu, converged, it_
         return {'h_k': h_k,
                 'e_hf': e_hf - e_ref,
                 'e_mean': e_mean/self.numSub,
@@ -955,8 +956,8 @@ if __name__ == "__main__":
 
     df_dict = {}
     for qIdx in range(3):
-        for orbIdx in range(2):
-            CkSub = Ck.sum(axis=0)[4*qIdx:4*(qIdx+1), 4*qIdx:4*(qIdx+1)][2*orbIdx:2*(orbIdx+1), 2*orbIdx:2*(orbIdx+1)]
+        for orbIdx in range(model.numOrb):
+            CkSub = Ck.sum(axis=0)[model.dim*qIdx:model.dim*(qIdx+1), model.dim*qIdx:model.dim*(qIdx+1)][2*orbIdx:2*(orbIdx+1), 2*orbIdx:2*(orbIdx+1)]
             df_dict[qIdx, orbIdx] = {}
             df_dict[qIdx, orbIdx]['X'] = assert_real(CkSub[0, 1] + CkSub[1, 0])
             df_dict[qIdx, orbIdx]['Y'] = assert_real(-1j * (CkSub[0, 1] - CkSub[1, 0]))
