@@ -390,7 +390,14 @@ class HF:
                 converged = True
                 break
 
-        return h_k, e_hf - e_ref, e_mean, Ck, converged, it_
+        return {'h_k': h_k,
+                'e_hf': e_hf - e_ref,
+                'e_mean': e_mean,
+                'Ck': Ck,
+                'dC': dC,
+                'mu': mu,
+                'converged': converged,
+                'iteration': it_}
 
     def build_effective_hopping(self, h_k):
         effective_hopping = {}

@@ -800,7 +800,15 @@ class HFsuper:
                 converged = True
                 break
 
-        return h_k, e_hf - e_ref, e_mean/self.numSub, Ck, mu, converged, it_
+        # return h_k, e_hf - e_ref, e_mean/self.numSub, Ck, mu, converged, it_
+        return {'h_k': h_k,
+                'e_hf': e_hf - e_ref,
+                'e_mean': e_mean/self.numSub,
+                'Ck': Ck,
+                'dC': dC,
+                'mu': mu,
+                'converged': converged,
+                'iteration': it_}
 
     def build_effective_hopping(self, h_k):
         effective_hopping = {}
@@ -894,7 +902,14 @@ if __name__ == "__main__":
     # model = HFsuper(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', nu=2, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
     # model = HFsuper(path='TightBindingModel/Re2MnO8/withSOCwannier-dim3', nu=5, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
-    h_k, e_hf, e_mean, Ck, mu, converged, it_ = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=C0_modify_)
+    result = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=C0_modify_)
+    h_k = result['h_k']
+    e_hf = result['e_hf']
+    e_mean = result['e_mean']
+    Ck = result['Ck']
+    mu = result['mu']
+    converged = result['converged']
+    it_ = result['iteration']
     print(f'convergence: {converged} / iteration: {it_}')
     effective_hopping = model.build_effective_hopping(h_k)
 
@@ -950,7 +965,7 @@ if __name__ == "__main__":
     df = pd.DataFrame(df_dict).T
     print(df)
     print(f'sum of N = {np.round(df["N"].sum(), 3)}')
-    
+
     plt.show()
 
 
@@ -967,11 +982,25 @@ if __name__ == "__main1__":
 
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
 
-    h_k, e_hf, e_mean, Ck, mu, converged, it_ = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=False)
+    result = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=False)
+    h_k = result['h_k']
+    e_hf = result['e_hf']
+    e_mean = result['e_mean']
+    Ck = result['Ck']
+    mu = result['mu']
+    converged = result['converged']
+    it_ = result['iteration']
     print(f'convergence: {converged} / iteration: {it_}')
     effective_hopping = model.build_effective_hopping(h_k)
 
-    h_k0, e_hf0, e_mean0, Ck0, converged, it_ = model0.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=False)
+    result0 = model0.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=False)
+    h_k0 = result0['h_k']
+    e_hf0 = result0['e_hf']
+    e_mean0 = result0['e_mean']
+    Ck0 = result0['Ck']
+    mu0 = result0['mu']
+    converged = result0['converged']
+    it_ = result0['iteration']
     print(f'convergence: {converged} / iteration: {it_}')
     effective_hopping0 = model0.build_effective_hopping(h_k0)
 
@@ -1088,12 +1117,19 @@ if __name__ == "__main3__":
 
     U0_ = 0.01
     Un_ = 0.01
-    V_ = 0.0
-    Vn_ = 0.0
+    V_ = 0.01
+    Vn_ = 0.01
 
     model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
-    h_k, e_hf, e_mean, Ck, mu, converged, it_ = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=True)
+    result = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=True)
+    h_k = result['h_k']
+    e_hf = result['e_hf']
+    e_mean = result['e_mean']
+    Ck = result['Ck']
+    mu = result['mu']
+    converged = result['converged']
+    it_ = result['iteration']
     print(f'convergence: {converged} / iteration: {it_}')
     effective_hopping = model.build_effective_hopping(h_k)
 
@@ -1125,7 +1161,14 @@ if __name__ == "__main3__":
 
     model0 = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
-    h_k, e_hf, e_mean, Ck, mu, converged, it_ = model0.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=True)
+    result = model0.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=True)
+    h_k = result['h_k']
+    e_hf = result['e_hf']
+    e_mean = result['e_mean']
+    Ck = result['Ck']
+    mu = result['mu']
+    converged = result['converged']
+    it_ = result['iteration']
     print(f'convergence: {converged} / iteration: {it_}')
     effective_hopping = model0.build_effective_hopping(h_k)
 
