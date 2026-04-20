@@ -871,6 +871,7 @@ class HFsuper:
             det_unitary = np.linalg.det(u @ vh)
             mag = np.abs(det_unitary)
             if mag < 1e-14:
+                print("Singular occupied-subspace overlap encountered.")
                 return 1.0 + 0.0j
             return det_unitary / mag
 
@@ -923,6 +924,17 @@ if __name__ == "__main__":
     print(f"Energy diff {model.nuSuper} and {model.nuSuper+1}: {np.min(energy_diff):.8f}")
     energy_gap = np.min(energy[:, :, model.nuSuper]) - np.max(energy[:, :, model.nuSuper-1])
     print(f"Energy gap {model.nuSuper} and {model.nuSuper+1}: {assert_real(energy_gap):.8f}")
+
+    Ck_sum = np.sum(Ck, axis=0)
+    n_sum = np.diag(Ck_sum)
+    n_up_total, n_down_total = 0, 0
+    for j in range(model.numSub):
+        sl_up = slice(model.dim * j, model.dim * (j + 1), 2)
+        sl_down = slice(model.dim * j + 1, model.dim * (j + 1), 2)
+        n_up_total += np.sum(n_sum[sl_up])
+        n_down_total += np.sum(n_sum[sl_down])
+    spin_components = assert_real(np.sort([n_up_total, n_down_total]))
+    print(f'Polarization: {np.round(spin_components[1]/model.N**2/model.nuSuper, 5)}')
 
     for idx, grid in model.indexToKGrid.items():
         k = grid[0] * model.Gs[1] / model.N + grid[1] * model.Gs[2] / model.N
