@@ -481,10 +481,10 @@ if __name__ == '__main__':
     Un_ = 0.0
     V_ = 0.0
     metal_ = True
-    nu_ = 1
+    nu_ = 2
     C0_modify_ = False
 
-    model = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', 
+    model = HF(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', 
                nu=nu_, U0=U0_, Un=Un_, V=V_, N=18, metal=metal_)
     reference_Ck = model.reference_Ck()
 
