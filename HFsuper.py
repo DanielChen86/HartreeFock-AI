@@ -32,6 +32,36 @@ def interpolation(a, b, N, i):
     return a + (b - a) / N * i
 
 
+def spin_observables(rho_spin):
+    """Return local spin-vector components and orientation from a 2x2 spin block."""
+    x = assert_real(rho_spin[0, 1] + rho_spin[1, 0])
+    y = assert_real(-1j * (rho_spin[0, 1] - rho_spin[1, 0]))
+    z = assert_real(rho_spin[0, 0] - rho_spin[1, 1])
+    density = assert_real(rho_spin[0, 0] + rho_spin[1, 1])
+
+    magnitude = float(np.sqrt(x**2 + y**2 + z**2))
+    if magnitude > 1e-12:
+        nx, ny, nz = np.array([x, y, z], dtype=float) / magnitude
+        theta = float(np.arccos(np.clip(nz, -1.0, 1.0)))
+        phi = float(np.arctan2(ny, nx))
+    else:
+        nx = ny = nz = 0.0
+        theta = phi = np.nan
+
+    return {
+        'X': x,
+        'Y': y,
+        'Z': z,
+        'N': density,
+        'spin_magnitude': magnitude,
+        'nx': nx,
+        'ny': ny,
+        'nz': nz,
+        'theta': theta,
+        'phi': phi,
+    }
+
+
 def similarity_transformation(transformed, transformation):
     return dagger(transformation) @ transformed @ transformation
 
@@ -892,16 +922,18 @@ class HFsuper:
 
 if __name__ == "__main__":
 
-    U0_ = 0.0
-    Un_ = 0.00
-    V_ = 0.0
-    Vn_ = 0.0
+    U0_ = 0.012
+    Un_ = 0.012
+    V_ = 0.018
+    Vn_ = 0.02
+    kT_ = 0.001
 
     C0_modify_ = False
 
 
     # model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
-    model = HFsuper(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', nu=2, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
+    # model = HFsuper(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', nu=2, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_, kT=0.0025)
+    model = HFsuper(path='TightBindingModelRotate/Re2NiO8', nu=2, N=18, U0=U0_, Un=Un_, V=V_, Vn=Vn_, kT=kT_)
     # model = HFsuper(path='TightBindingModel/Re2MnO8/withSOCwannier-dim3', nu=5, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
     result = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=C0_modify_)
@@ -915,7 +947,7 @@ if __name__ == "__main__":
     print(f'convergence: {converged} / iteration: {it_}')
     effective_hopping = model.build_effective_hopping(h_k)
 
-    print(f'U0={model.U0}, Un={model.Un}, V={model.V}, Vn={model.Vn}')
+    print(f'U0={model.U0}, Un={model.Un}, V={model.V}, Vn={model.Vn}, kT={np.round(model.kT, 6)}')
     print(f'e_mean={e_mean:.8f}')
     chern, energy = model.total_chern_number_energy(effective_hopping, 45)
     print(f"Total Chern number (filled bands): {chern:.8f}")
@@ -966,15 +998,14 @@ if __name__ == "__main__":
     plt.xticks([0, N_high_symmetry, 2*N_high_symmetry, 3*N_high_symmetry], [r'$\Gamma_s$', r'$K_s$', r'$M_s$', r'$\Gamma_s$'])
     plt.title(f'U0={model.U0}, Un={model.Un}, V={model.V}, Vn={model.Vn}')
 
+    # Average over k so the reported spin is local and independent of N.
+    rho = np.mean(Ck, axis=0)
     df_dict = {}
     for qIdx in range(3):
         for orbIdx in range(model.numOrb):
-            CkSub = Ck.sum(axis=0)[model.dim*qIdx:model.dim*(qIdx+1), model.dim*qIdx:model.dim*(qIdx+1)][2*orbIdx:2*(orbIdx+1), 2*orbIdx:2*(orbIdx+1)]
-            df_dict[qIdx, orbIdx] = {}
-            df_dict[qIdx, orbIdx]['X'] = assert_real(CkSub[0, 1] + CkSub[1, 0])
-            df_dict[qIdx, orbIdx]['Y'] = assert_real(-1j * (CkSub[0, 1] - CkSub[1, 0]))
-            df_dict[qIdx, orbIdx]['Z'] = assert_real(CkSub[0, 0] - CkSub[1, 1])
-            df_dict[qIdx, orbIdx]['N'] = assert_real((CkSub[0, 0] + CkSub[1, 1]) / model.N**2)
+            sl = slice(model.dim*qIdx, model.dim*(qIdx+1))
+            rho_spin = rho[sl, sl][2*orbIdx:2*(orbIdx+1), 2*orbIdx:2*(orbIdx+1)]
+            df_dict[qIdx, orbIdx] = spin_observables(rho_spin)
     df = pd.DataFrame(df_dict).T
     print(df)
     print(f'sum of N = {np.round(df["N"].sum(), 3)}')
@@ -1059,17 +1090,6 @@ if __name__ == "__main1__":
             plt.plot(np.arange(3*N_high_symmetry+1), band_structure[:, bnd], color=colors[idx], linestyle=(0, (8, 8)))
     plt.xticks([0, N_high_symmetry, 2*N_high_symmetry, 3*N_high_symmetry], [r'$\Gamma_s$', r'$K_s$', r'$M_s$', r'$\Gamma_s$'])
 
-    df_dict = {}
-    for qIdx in range(3):
-        for orbIdx in range(2):
-            CkSub = Ck.sum(axis=0)[4*qIdx:4*(qIdx+1), 4*qIdx:4*(qIdx+1)][2*orbIdx:2*(orbIdx+1), 2*orbIdx:2*(orbIdx+1)]
-            df_dict[qIdx, orbIdx] = {}
-            df_dict[qIdx, orbIdx]['X'] = assert_real(CkSub[0, 1] + CkSub[1, 0])
-            df_dict[qIdx, orbIdx]['Y'] = assert_real(-1j * (CkSub[0, 1] - CkSub[1, 0]))
-            df_dict[qIdx, orbIdx]['Z'] = assert_real(CkSub[0, 0] - CkSub[1, 1])
-            df_dict[qIdx, orbIdx]['N'] = assert_real(CkSub[0, 0] + CkSub[1, 1] / model.N**2)
-    df = pd.DataFrame(df_dict).T
-    print(df)
 
     plt.show()
 
