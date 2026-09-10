@@ -770,9 +770,15 @@ class HFsuper:
         random_seed = None,
         Ck0 = None,
         subtract_reference: bool = False,
-        verbose: bool = False):
+        verbose: bool = False,
+        energy_decrease_tol: float = 1e-8,
+        energy_stall_iters: int = np.inf):
         if not (0.0 < alpha <= 1.0):
             raise ValueError("mix must satisfy 0 < mix <= 1.")
+        if energy_decrease_tol < 0.0:
+            raise ValueError("energy_decrease_tol must be nonnegative.")
+        if energy_stall_iters < 1:
+            raise ValueError("energy_stall_iters must be at least 1.")
 
         if Ck0 is None:
             Ck = self.build_Ck(
@@ -792,6 +798,8 @@ class HFsuper:
             e_ref = 0.0
 
         converged = False
+        previous_energy = None
+        stalled_energy_iters = 0
         for it_ in range(1, max_iter + 1):
             h_hf, e_hf = self.hartree_fock_terms(Ck)
             h_k = self.HtbSuper - h_ref + h_hf
@@ -808,6 +816,21 @@ class HFsuper:
             dC = self.relative_frobenius_delta(C_mixed, Ck)
             e_mean = np.sum(evals * occ) / self.N**2
             e_mean = assert_real(e_mean)
+            energy = e_mean / self.numSub
+
+            if previous_energy is not None:
+                energy_decrease = previous_energy - energy
+                if energy_decrease <= energy_decrease_tol:
+                    stalled_energy_iters += 1
+                else:
+                    stalled_energy_iters = 0
+
+                if stalled_energy_iters >= energy_stall_iters:
+                    alpha = alpha * 0.9
+                    stalled_energy_iters = 0
+                    if verbose:
+                        print(f"Energy decrease stalled; reducing alpha to {alpha:.6g}")
+            previous_energy = energy
 
             Ck_sum = np.sum(Ck, axis=0)
             n_sum = np.diag(Ck_sum)
@@ -823,7 +846,7 @@ class HFsuper:
 
             if verbose:
                 print(
-                    f"e_mean={np.round(e_mean/self.numSub, 12):<20} dC_rel={dC:.3e}   mu={mu:.3e}   {np.round(spin_components[1], 1)}/{self.Nocc}"
+                    f"iter={it_:<4}:  e_mean={np.round(e_mean/self.numSub, 12):<20} dC_rel={dC:.3e}  alpha={alpha:.3e}   mu={mu:.3e}   {np.round(spin_components[1], 1)}/{self.Nocc}"
                 )
 
             Ck = C_mixed
@@ -926,17 +949,24 @@ if __name__ == "__main__":
     Un_ = 0.012
     V_ = 0.018
     Vn_ = 0.02
-    kT_ = 0.001
+    kT_ = 0.0025
 
     C0_modify_ = False
 
 
     # model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
     # model = HFsuper(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', nu=2, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_, kT=0.0025)
-    model = HFsuper(path='TightBindingModelRotate/Re2NiO8', nu=2, N=18, U0=U0_, Un=Un_, V=V_, Vn=Vn_, kT=kT_)
+    model = HFsuper(path='TightBindingModelRotate/Re2NiO8', nu=2, N=24, U0=U0_, Un=Un_, V=V_, Vn=Vn_, kT=kT_)
     # model = HFsuper(path='TightBindingModel/Re2MnO8/withSOCwannier-dim3', nu=5, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
-    result = model.solve(max_iter=10000, alpha=0.5, verbose=True, random_seed=now_int, subtract_reference=C0_modify_)
+    result = model.solve(max_iter=10000, 
+                         alpha=0.2, 
+                         verbose=True, 
+                         random_seed=now_int, 
+                         subtract_reference=C0_modify_,
+                         energy_stall_iters=np.inf, 
+                         energy_decrease_tol=1e-10
+                         )
     h_k = result['h_k']
     e_hf = result['e_hf']
     e_mean = result['e_mean']
@@ -947,7 +977,7 @@ if __name__ == "__main__":
     print(f'convergence: {converged} / iteration: {it_}')
     effective_hopping = model.build_effective_hopping(h_k)
 
-    print(f'U0={model.U0}, Un={model.Un}, V={model.V}, Vn={model.Vn}, kT={np.round(model.kT, 6)}')
+    print(f'U0={np.round(model.U0, 6)}, Un={np.round(model.Un, 6)}, V={np.round(model.V, 6)}, Vn={np.round(model.Vn, 6)}, kT={np.round(model.kT, 6)}')
     print(f'e_mean={e_mean:.8f}')
     chern, energy = model.total_chern_number_energy(effective_hopping, 45)
     print(f"Total Chern number (filled bands): {chern:.8f}")
@@ -996,7 +1026,7 @@ if __name__ == "__main__":
         plt.plot(np.arange(3*N_high_symmetry+1), band_structure[:, bnd], color='k')
     plt.hlines(mu, 0, 3*N_high_symmetry+1, colors='b', linestyles='--', alpha=0.5, linewidth=0.7)
     plt.xticks([0, N_high_symmetry, 2*N_high_symmetry, 3*N_high_symmetry], [r'$\Gamma_s$', r'$K_s$', r'$M_s$', r'$\Gamma_s$'])
-    plt.title(f'U0={model.U0}, Un={model.Un}, V={model.V}, Vn={model.Vn}')
+    plt.title(f'U0={np.round(model.U0, 6)}, Un={np.round(model.Un, 6)}, V={np.round(model.V, 6)}, Vn={np.round(model.Vn, 6)}, kT={np.round(model.kT, 6)}')
 
     # Average over k so the reported spin is local and independent of N.
     rho = np.mean(Ck, axis=0)
