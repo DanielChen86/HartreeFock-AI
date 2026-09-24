@@ -945,27 +945,47 @@ class HFsuper:
 
 if __name__ == "__main__":
 
-    U0_ = 0.012
-    Un_ = 0.012
-    V_ = 0.018
-    Vn_ = 0.02
-    kT_ = 0.0025
+    path_ = 'TightBindingModelRotate/Re2NiO8'
+    nu_ = 2
+    U0_ = 0.009
+    Un_ = 0.01
+    V_ = 0.016
+    Vn_ = 0.017
+    kT_ = 0.001
+    C0_modify_ = True
+    # spin-polarized CDW -> spin unpolarized CDW -> no CDW
 
-    C0_modify_ = False
+    # path_ = 'TightBindingModelRotate/Re2NiO8'
+    # nu_ = 2
+    # U0_ = 0.012
+    # Un_ = 0.012
+    # V_ = 0.018
+    # Vn_ = 0.02
+    # kT_ = 0.0025
+    # C0_modify_ = False
+    # # spin-polarized CDW -> spin unpolarized CDW -> no CDW
+
+    # path_ = 'TightBindingModelRotate/Re2CoO8'
+    # nu_ = 1
+    # U0_ = 0.012
+    # Un_ = 0.012
+    # V_ = 0.018
+    # Vn_ = 0.02
+    # kT_ = 0.0025
+    # C0_modify_ = False
+    # # spin-polarized CDW -> spin unpolarized CDW -> no CDW
 
 
-    # model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
-    # model = HFsuper(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', nu=2, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_, kT=0.0025)
-    model = HFsuper(path='TightBindingModelRotate/Re2NiO8', nu=2, N=24, U0=U0_, Un=Un_, V=V_, Vn=Vn_, kT=kT_)
-    # model = HFsuper(path='TightBindingModel/Re2MnO8/withSOCwannier-dim3', nu=5, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
+    model = HFsuper(path=path_, nu=nu_, N=18, U0=U0_, Un=Un_, V=V_, Vn=Vn_, kT=kT_)
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
     result = model.solve(max_iter=10000, 
-                         alpha=0.2, 
+                         alpha=0.8, 
+                         tol_dC=1e-6,
                          verbose=True, 
                          random_seed=now_int, 
                          subtract_reference=C0_modify_,
                          energy_stall_iters=np.inf, 
-                         energy_decrease_tol=1e-10
+                         energy_decrease_tol=1e-10,
                          )
     h_k = result['h_k']
     e_hf = result['e_hf']
@@ -975,17 +995,25 @@ if __name__ == "__main__":
     converged = result['converged']
     it_ = result['iteration']
     print(f'convergence: {converged} / iteration: {it_}')
-    effective_hopping = model.build_effective_hopping(h_k)
+    print()
 
-    print(f'U0={np.round(model.U0, 6)}, Un={np.round(model.Un, 6)}, V={np.round(model.V, 6)}, Vn={np.round(model.Vn, 6)}, kT={np.round(model.kT, 6)}')
-    print(f'e_mean={e_mean:.8f}')
+    effective_hopping = model.build_effective_hopping(h_k)
+    print(f'U0 = {np.round(model.U0, 6)}')
+    print(f'Un = {np.round(model.Un, 6)}')
+    print(f'V0 = {np.round(model.V, 6)}')
+    print(f'Vn = {np.round(model.Vn, 6)}')
+    print(f'kT = {np.round(model.kT, 6)}')
+    print(f'C0_modify_ = {C0_modify_}')
+    
+    
+    print(f'e_mean = {e_mean:.8f}')
     chern, energy = model.total_chern_number_energy(effective_hopping, 45)
-    print(f"Total Chern number (filled bands): {chern:.8f}")
+    print(f"Total Chern number (filled bands) = {chern:.8f}")
     energy_diff = assert_real(energy[:, :, model.nuSuper] - energy[:, :, model.nuSuper-1])
     assert np.all(energy_diff >= 0)
-    print(f"Energy diff {model.nuSuper} and {model.nuSuper+1}: {np.min(energy_diff):.8f}")
+    print(f"Energy diff {model.nuSuper} and {model.nuSuper+1} = {np.min(energy_diff):.8f}")
     energy_gap = np.min(energy[:, :, model.nuSuper]) - np.max(energy[:, :, model.nuSuper-1])
-    print(f"Energy gap {model.nuSuper} and {model.nuSuper+1}: {assert_real(energy_gap):.8f}")
+    print(f"Energy gap {model.nuSuper} and {model.nuSuper+1} = {assert_real(energy_gap):.8f}")
 
     Ck_sum = np.sum(Ck, axis=0)
     n_sum = np.diag(Ck_sum)
@@ -996,14 +1024,14 @@ if __name__ == "__main__":
         n_up_total += np.sum(n_sum[sl_up])
         n_down_total += np.sum(n_sum[sl_down])
     spin_components = assert_real(np.sort([n_up_total, n_down_total]))
-    print(f'Polarization: {np.round(spin_components[1]/model.N**2/model.nuSuper, 5)}')
+    print(f'Polarization = {np.round(spin_components[1]/model.N**2/model.nuSuper, 5)}')
 
     for idx, grid in model.indexToKGrid.items():
         k = grid[0] * model.Gs[1] / model.N + grid[1] * model.Gs[2] / model.N
         eigvals1 = np.linalg.eigh(h_k[idx, :, :])[0]
         eigvals2 = np.linalg.eigh(model.HKtbEff(k, effective_hopping))[0]
         assert np.allclose(eigvals1, eigvals2)
-    print(np.round(np.trace(np.sum(Ck, axis=0)), 2))
+    print(f'trace of Ck = {np.round(np.trace(np.sum(Ck, axis=0)), 2)}')
 
     N_high_symmetry = 100
     band_structure = np.zeros((3*N_high_symmetry+1, model.dimSuper))
@@ -1037,7 +1065,9 @@ if __name__ == "__main__":
             rho_spin = rho[sl, sl][2*orbIdx:2*(orbIdx+1), 2*orbIdx:2*(orbIdx+1)]
             df_dict[qIdx, orbIdx] = spin_observables(rho_spin)
     df = pd.DataFrame(df_dict).T
+    print('=========================================================================================================')
     print(df)
+    print('=========================================================================================================')
     print(f'sum of N = {np.round(df["N"].sum(), 3)}')
 
     plt.show()
