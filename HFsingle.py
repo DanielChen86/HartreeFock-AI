@@ -37,12 +37,13 @@ pi = np.pi
 
 
 class HF:
-    def __init__(self, path, nu, N, U0=0, Un=0, V=0, metal=True, kT=0.005):
+    def __init__(self, path, nu, N, U0=0, Un=0, V=0, metal=True, kT=0.005, Vn=0):
         self.path = path
         self.nu = nu
         self.U0 = U0
         self.Un = Un
         self.V = V
+        self.Vn = Vn
         self.N = N
         self.metal = metal
         self.kT = kT
@@ -298,12 +299,62 @@ class HF:
         h_hf = 0.5 * (h_hf + h_hf.conj().T)
         return h_hf, np.sum(h_hf * rho) / 2 / self.nu
 
+    def nearest_neighbor_hubbard_up_down(self, Ck: np.ndarray) -> np.ndarray:
+        """Hartree-Fock decoupling of the nearest-neighbor up/down interaction Vn."""
+        h_hf = np.zeros((self.N**2, self.dim, self.dim), dtype=np.complex128)
+        if np.isclose(self.Vn, 0.0):
+            return h_hf, 0.0
+
+        up_idx = np.arange(0, self.dim, 2)
+        down_idx = np.arange(1, self.dim, 2)
+        nn_displacements = np.array([
+            self.A[1],
+            -self.A[1],
+            self.A[2],
+            -self.A[2],
+            self.A[1] + self.A[2],
+            -(self.A[1] + self.A[2]),
+        ])
+
+        rho = np.mean(Ck, axis=0)
+        n_up = float(np.trace(rho[np.ix_(up_idx, up_idx)]).real)
+        n_down = float(np.trace(rho[np.ix_(down_idx, down_idx)]).real)
+        coupling = 0.5 * self.Vn
+
+        # Hartree term: each site has six nearest neighbors.
+        h_hf[:, up_idx, up_idx] += coupling * len(nn_displacements) * n_down
+        h_hf[:, down_idx, down_idx] += coupling * len(nn_displacements) * n_up
+
+        k_vectors = np.zeros((self.N**2, 2), dtype=float)
+        for idx, (n1, n2) in self.indexToKGrid.items():
+            k_vectors[idx] = n1 * self.G[1] / self.N + n2 * self.G[2] / self.N
+
+        phases = np.exp(-1j * np.einsum('kd,ad->ka', k_vectors, nn_displacements))
+        rho_delta = np.einsum('ka,kij->aij', phases, Ck) / self.N**2
+
+        # Fock term exchanges opposite spins across neighboring sites.
+        rho_down_up = rho_delta[:, down_idx[:, None], up_idx[None, :]]
+        rho_up_down = rho_delta[:, up_idx[:, None], down_idx[None, :]]
+        exchange_up_down = np.einsum(
+            'ka,aij->kij', phases.conj(), rho_down_up.transpose(0, 2, 1)
+        )
+        exchange_down_up = np.einsum(
+            'ka,aij->kij', phases.conj(), rho_up_down.transpose(0, 2, 1)
+        )
+        h_hf[:, up_idx[:, None], down_idx] -= coupling * exchange_up_down
+        h_hf[:, down_idx[:, None], up_idx] -= coupling * exchange_down_up
+
+        h_hf = 0.5 * (h_hf + h_hf.swapaxes(-1, -2).conj())
+        e_hf = np.sum(h_hf * Ck) / (2 * self.N**2)
+        return h_hf, assert_real(e_hf) / self.nu
+
     def hartree_fock_terms(self, Ck: np.ndarray) -> tuple[np.ndarray, float]:
         h_u0, e_u0 = self.onsite_density_density(Ck)
         h_un, e_un = self.nearest_neighbor_density_density(Ck)
         h_vud, e_vud = self.on_site_hubbard_up_down(Ck)
-        h_hf = h_un + h_u0[None, :, :] + h_vud[None, :, :]
-        e_hf = assert_real(e_u0 + e_un + e_vud)
+        h_vnud, e_vnud = self.nearest_neighbor_hubbard_up_down(Ck)
+        h_hf = h_un + h_u0[None, :, :] + h_vud[None, :, :] + h_vnud
+        e_hf = assert_real(e_u0 + e_un + e_vud + e_vnud)
         return h_hf, e_hf
 
     def reference_Ck(self) -> np.ndarray:
@@ -480,12 +531,13 @@ if __name__ == '__main__':
     U0_ = 0.0
     Un_ = 0.0
     V_ = 0.0
+    Vn_ = 0.0
     metal_ = True
     nu_ = 2
     C0_modify_ = False
 
     model = HF(path='TightBindingModel/Re2NiO8/withSOCwannier-dim2', 
-               nu=nu_, U0=U0_, Un=Un_, V=V_, N=18, metal=metal_)
+               nu=nu_, U0=U0_, Un=Un_, V=V_, Vn=Vn_, N=18, metal=metal_)
     reference_Ck = model.reference_Ck()
 
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
@@ -506,7 +558,7 @@ if __name__ == '__main__':
         assert np.allclose(eigvals1, eigvals2)
     print(np.round(np.trace(np.sum(Ck, axis=0)), 2))
 
-    print(f'U0={model.U0}, Un={model.Un}, V={model.V}')
+    print(f'U0={model.U0}, Un={model.Un}, V={model.V}, Vn={model.Vn}')
     print(f'e_mean={e_mean:.8f}')
     chern, energy = model.total_chern_number_energy(effective_hopping, 90)
     print(f"Total Chern number (filled bands): {chern:.8f}")

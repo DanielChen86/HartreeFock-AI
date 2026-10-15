@@ -4,6 +4,10 @@ import matplotlib.pyplot as plt
 from HFsingle import HF
 import datetime
 import pandas as pd
+pd.set_option("display.max_rows", None)
+pd.set_option("display.max_columns", None)
+pd.set_option("display.width", None)
+pd.set_option("display.expand_frame_repr", False)
 
 GAMMA_TRUNCATION = [(-6, -3), (-5, -4), (-5, -3), (-5, -2), (-5, -1), 
                     (-4, -4), (-4, -3), (-4, -2), (-4, -1), (-4, 0), (-4, 1), 
@@ -943,40 +947,19 @@ class HFsuper:
         return chern_number, energy
 
 
-if __name__ == "__main__":
+if __name__ == "__main0__":
 
     path_ = 'TightBindingModelRotate/Re2NiO8'
     nu_ = 2
-    U0_ = 0.009
-    Un_ = 0.01
-    V_ = 0.016
-    Vn_ = 0.017
-    kT_ = 0.001
-    C0_modify_ = True
-    # spin-polarized CDW -> spin unpolarized CDW -> no CDW
-
-    # path_ = 'TightBindingModelRotate/Re2NiO8'
-    # nu_ = 2
-    # U0_ = 0.012
-    # Un_ = 0.012
-    # V_ = 0.018
-    # Vn_ = 0.02
-    # kT_ = 0.0025
-    # C0_modify_ = False
-    # # spin-polarized CDW -> spin unpolarized CDW -> no CDW
-
-    # path_ = 'TightBindingModelRotate/Re2CoO8'
-    # nu_ = 1
-    # U0_ = 0.012
-    # Un_ = 0.012
-    # V_ = 0.018
-    # Vn_ = 0.02
-    # kT_ = 0.0025
-    # C0_modify_ = False
-    # # spin-polarized CDW -> spin unpolarized CDW -> no CDW
+    U0_ = 0.021
+    Un_ = 0.012
+    V_ = 0.018
+    Vn_ = 0.015
+    kT_ = 0.0015
+    C0_modify_ = False
 
 
-    model = HFsuper(path=path_, nu=nu_, N=18, U0=U0_, Un=Un_, V=V_, Vn=Vn_, kT=kT_)
+    model = HFsuper(path=path_, nu=nu_, N=30, U0=U0_, Un=Un_, V=V_, Vn=Vn_, kT=kT_)
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
     result = model.solve(max_iter=10000, 
                          alpha=0.8, 
@@ -1075,14 +1058,18 @@ if __name__ == "__main__":
 
 if __name__ == "__main1__":
 
-    U0_ = 0.05
-    Un_ = 0.01
-    V_ = 0.05
-    Vn_ = 0.0
+    path_ = 'TightBindingModelRotate/Re2NiO8'
+    nu_ = 2
+    U0_ = 0.003
+    Un_ = 0.003
+    V_ = 0.002
+    Vn_ = 0.002
+    kT_ = 0.001
+    N_ = 24
 
 
-    model = HFsuper(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_, Vn=Vn_)
-    model0 = HF(path='TightBindingModel/Re2CoO8/withSOCwannier-dim2', nu=1, N=12, U0=U0_, Un=Un_, V=V_)
+    model = HFsuper(path=path_, nu=nu_, N=N_, U0=U0_, Un=Un_, V=V_, Vn=Vn_, kT=kT_)
+    model0 = HF(path=path_, nu=nu_, N=N_, U0=U0_, Un=Un_, V=V_, Vn=Vn_, kT=kT_)
 
     now_int = int(np.round(datetime.datetime.now().timestamp() * 1e6))
 
